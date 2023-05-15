@@ -5,11 +5,13 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
     match input {
         RESP::Array(vec) => {
             if let RESP::Binary(command) = &vec[0] {
-                if command.starts_with(b"PING") {
-                    b"+PONG\r\n".to_vec()
-                } else {
-                    eprintln!("{:?}", std::str::from_utf8(command).unwrap());
-                    vec![]
+                let command = std::str::from_utf8(command).unwrap().to_uppercase();
+                match &command[..] {
+                    "PING" => b"+PONG\r\n".to_vec(),
+                    _ => {
+                        eprintln!("invalid command {:?}", command);
+                        vec![]
+                    }
                 }
             } else {
                 vec![]

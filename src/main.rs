@@ -28,6 +28,7 @@ fn main() {
                         println!("read {} bytes", n);
                         let response = handle_input(&request_buffer[..n]);
                         stream.write(&response);
+                        stream.flush();
                     }
                     Err(e) => {
                         eprintln!("error reading from stream {:?}", e);
