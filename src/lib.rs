@@ -8,6 +8,7 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
                 let command = std::str::from_utf8(command).unwrap().to_uppercase();
                 match &command[..] {
                     "PING" => b"+PONG\r\n".to_vec(),
+                    "COMMAND" => b"+PONG\r\n".to_vec(),
                     _ => {
                         eprintln!("invalid command {:?}", command);
                         vec![]
