@@ -1,9 +1,4 @@
 // Uncomment this block to pass the first stage
-use std::{
-    io::{Read, Write},
-    thread,
-};
-
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -21,7 +16,7 @@ async fn main() {
 
     loop {
         match listener.accept().await {
-            Ok((mut stream, addr)) => {
+            Ok((mut stream, _addr)) => {
                 println!("accepted new connection");
                 loop {
                     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
@@ -31,13 +26,16 @@ async fn main() {
                             break;
                         }
                         println!("read {} bytes", n);
-                        println!("REQ: {:?}", std::str::from_utf8(&request_buffer[..n]).unwrap());
+                        println!(
+                            "REQ: {:?}",
+                            std::str::from_utf8(&request_buffer[..n]).unwrap()
+                        );
                         let response = handle_input(&request_buffer[..n]);
                         println!("RES: {:?}", std::str::from_utf8(&response).unwrap());
                         if let Err(e) = stream.write_all(&response).await {
                             eprintln!("Error writing {:?}", e);
                         }
-                        stream.flush();
+                        stream.flush().await.unwrap();
                     } else {
                         eprintln!("error reading from tcp stream");
                         break;

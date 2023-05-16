@@ -1,16 +1,16 @@
-mod RESP;
-
-use RESP::{SerDe, RESP as resp};
+mod resp;
 
 pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
-    let (input, _) = resp::deserialize(request_buffer);
+    let (input, _) = resp::SerDe::deserialize(request_buffer);
     match input {
-        resp::Array(vec) => {
-            if let resp::Binary(command) = &vec[0] {
+        resp::Resp::Array(vec) => {
+            if let resp::Resp::Binary(command) = &vec[0] {
                 let command = std::str::from_utf8(command).unwrap().to_uppercase();
                 match &command[..] {
-                    "PING" => resp::serialize(resp::String("PONG".into())),
-                    "COMMAND" => resp::serialize(resp::Array(vec![resp::Binary("PING".as_bytes().into())])),
+                    "PING" => resp::SerDe::serialize(resp::Resp::String("PONG".into())),
+                    "COMMAND" => {
+                        resp::SerDe::serialize(resp::Resp::Array(vec![resp::Resp::Binary("PING".as_bytes().into())]))
+                    }
                     _ => {
                         eprintln!("invalid command {:?}", command);
                         vec![]
@@ -20,10 +20,10 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
                 vec![]
             }
         }
-        resp::Binary(_) => todo!(),
-        resp::Error(_) => todo!(),
-        resp::Integer(_) => todo!(),
-        resp::String(_) => todo!(),
-        resp::Null => todo!(),
+        resp::Resp::Binary(_) => todo!(),
+        resp::Resp::Error(_) => todo!(),
+        resp::Resp::Integer(_) => todo!(),
+        resp::Resp::String(_) => todo!(),
+        resp::Resp::Null => todo!(),
     }
 }
