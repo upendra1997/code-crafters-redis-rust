@@ -2,11 +2,12 @@ use std::borrow::Cow;
 
 pub trait SerDe {
     type Input;
+    type Output;
     fn deserialize(input: Self::Input) -> (Self, usize)
     where
         Self: Sized;
 
-    fn serialize(input: Self) -> Self::Input
+    fn serialize(input: Self) -> Self::Output
     where
         Self: Sized;
 }
@@ -111,6 +112,7 @@ fn parse_free_form(_request_buffer: &[u8]) -> (RESP, usize) {
 
 impl<'a> SerDe for RESP<'a> {
     type Input = &'a [u8];
+    type Output = Vec<u8>;
 
     fn deserialize(input: Self::Input) -> (Self, usize)
     where
@@ -144,10 +146,32 @@ impl<'a> SerDe for RESP<'a> {
         }
     }
 
-    fn serialize(_input: Self) -> Self::Input
+    fn serialize(input: Self) -> Self::Output
     where
         Self: Sized,
     {
-        todo!()
+        match input {
+            RESP::String(string) => format!("+{}\r\n", string).as_bytes().into(),
+            RESP::Binary(blob) => [
+                format!("${}\r\n", blob.len()).as_bytes(),
+                blob.as_ref(),
+                "\r\n".as_bytes(),
+            ]
+            .concat()
+            .into(),
+            RESP::Error(err) => format!("-{}\r\n", err).as_bytes().into(),
+            RESP::Array(array) => [
+                format!("*{}\r\n", array.len()).as_bytes(),
+                &array
+                    .into_iter()
+                    .map(|elem| Self::serialize(elem))
+                    .collect::<Vec<Vec<u8>>>()
+                    .concat(),
+            ]
+            .concat()
+            .into(),
+            RESP::Integer(number) => format!(":{}\r\n", number).as_bytes().into(),
+            RESP::Null => format!("$-1\r\n").as_bytes().into(),
+        }
     }
 }
