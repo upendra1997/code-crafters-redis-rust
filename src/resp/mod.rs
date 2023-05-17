@@ -4,12 +4,12 @@ pub trait SerDe {
     type Input;
     type Output;
     fn deserialize(input: Self::Input) -> (Self, usize)
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 
     fn serialize(input: Self) -> Self::Output
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
 pub enum Resp<'a> {
@@ -116,8 +116,8 @@ impl<'a> SerDe for Resp<'a> {
     type Output = Vec<u8>;
 
     fn deserialize(input: Self::Input) -> (Self, usize)
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         let (result, length) = match input[0] {
             b'+' => parse_simple_string(&input[1..]),
@@ -134,8 +134,8 @@ impl<'a> SerDe for Resp<'a> {
     }
 
     fn serialize(input: Self) -> Self::Output
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         match input {
             Resp::String(string) => format!("+{}\r\n", string).as_bytes().into(),
@@ -144,7 +144,7 @@ impl<'a> SerDe for Resp<'a> {
                 blob.as_ref(),
                 "\r\n".as_bytes(),
             ]
-                .concat(),
+            .concat(),
             Resp::Error(err) => format!("-{}\r\n", err).as_bytes().into(),
             Resp::Array(array) => [
                 format!("*{}\r\n", array.len()).as_bytes(),
@@ -154,7 +154,7 @@ impl<'a> SerDe for Resp<'a> {
                     .collect::<Vec<Vec<u8>>>()
                     .concat(),
             ]
-                .concat(),
+            .concat(),
             Resp::Integer(number) => format!(":{}\r\n", number).as_bytes().into(),
             Resp::Null => "$-1\r\n".to_string().as_bytes().into(),
         }

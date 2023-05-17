@@ -18,8 +18,8 @@ async fn main() {
         match listener.accept().await {
             Ok((mut stream, _addr)) => {
                 println!("accepted new connection");
+                let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                 loop {
-                    let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                     if let Ok(n) = stream.read(&mut request_buffer).await {
                         if n == 0 {
                             eprintln!("read {} bytes", n);
