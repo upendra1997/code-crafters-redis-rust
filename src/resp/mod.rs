@@ -45,6 +45,12 @@ impl<'a> From<Vec<Resp<'a>>> for Resp<'a> {
     }
 }
 
+impl<'a> From<Resp<'a>> for Vec<u8> {
+    fn from(value: Resp<'a>) -> Self {
+        SerDe::serialize(value)
+    }
+}
+
 impl<'a> From<i64> for Resp<'a> {
     fn from(value: i64) -> Self {
         Resp::Integer(value)
