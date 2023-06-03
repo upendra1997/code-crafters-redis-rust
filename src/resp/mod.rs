@@ -21,15 +21,21 @@ pub enum Resp<'a> {
     Null,
 }
 
+impl<'a> From<&'a str> for Resp<'a> {
+    fn from(value: &'a str) -> Self {
+        Resp::String(Cow::Borrowed(value))
+    }
+}
+
 impl<'a> From<String> for Resp<'a> {
     fn from(value: String) -> Self {
         Resp::Binary(Cow::Owned(value.as_bytes().into()))
     }
 }
 
-impl<'a> From<Vec<u8>> for Resp<'a> {
-    fn from(value: Vec<u8>) -> Self {
-        Resp::Binary(Cow::Owned(value.into()))
+impl<'a> From<&'a [u8]> for Resp<'a> {
+    fn from(value: &'a [u8]) -> Self {
+        Resp::Binary(Cow::Borrowed(value))
     }
 }
 
@@ -162,7 +168,7 @@ impl<'a> SerDe for Resp<'a> {
             b':' => parse_integer(&input[1..]),
             b'$' => parse_bulk_string(&input[1..]),
             b'*' => parse_array(&input[1..]),
-            _ => todo!("Free form parsing not available yet")
+            _ => todo!("Free form parsing not available yet"),
         };
         (result, length + 1)
     }

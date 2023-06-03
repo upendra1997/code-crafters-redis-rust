@@ -12,10 +12,15 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
                 let command = std::str::from_utf8(command).unwrap().to_uppercase();
                 match command.as_ref() {
                     "PING" => resp::SerDe::serialize(resp::Resp::String("PONG".into())),
-                    "COMMAND" => resp::SerDe::serialize(resp::Resp::Array(vec![
-                        resp::Resp::String("PING".into()),
-                        resp::Resp::String("ECHO".into()),
-                    ])),
+                    "COMMAND" => {
+                        let commands = vec![
+                            "PING".as_bytes().into(),
+                            vec!["respond with pong".as_bytes().into()].into(),
+                            "ECHO".as_bytes().into(),
+                            vec!["response with some message".as_bytes().into()].into(),
+                        ];
+                        resp::SerDe::serialize(Into::<resp::Resp>::into(commands))
+                    }
                     "ECHO" => {
                         let first = arguments.pop_front().unwrap();
                         resp::SerDe::serialize(first)
