@@ -21,6 +21,43 @@ pub enum Resp<'a> {
     Null,
 }
 
+impl<'a> From<String> for Resp<'a> {
+    fn from(value: String) -> Self {
+        Resp::Binary(Cow::Owned(value.as_bytes().into()))
+    }
+}
+
+impl<'a> From<Vec<u8>> for Resp<'a> {
+    fn from(value: Vec<u8>) -> Self {
+        Resp::Binary(Cow::Owned(value.into()))
+    }
+}
+
+impl<'a> From<Vec<Resp<'a>>> for Resp<'a> {
+    fn from(value: Vec<Resp<'a>>) -> Self {
+        Resp::Array(value)
+    }
+}
+
+impl<'a> From<i64> for Resp<'a> {
+    fn from(value: i64) -> Self {
+        Resp::Integer(value)
+    }
+}
+
+// impl<'a> AsRef<str> for Resp<'a> {
+//     fn as_ref(&self) -> &str {
+//         match self {
+//             Resp::String(str) => str.as_ref(),
+//             Resp::Binary(str) => std::str::from_utf8(str.as_ref()).unwrap(),
+//             Resp::Error(str) => str.as_ref(),
+//             Resp::Array(_) => todo!(),
+//             Resp::Integer(n) => todo!(),
+//             Resp::Null => todo!(),
+//         }
+//     }
+// }
+
 fn parse_simple_string(request_buffer: &[u8]) -> (Resp, usize) {
     let pos = request_buffer
         .windows(2)
@@ -125,10 +162,7 @@ impl<'a> SerDe for Resp<'a> {
             b':' => parse_integer(&input[1..]),
             b'$' => parse_bulk_string(&input[1..]),
             b'*' => parse_array(&input[1..]),
-            _ => {
-                let (result, length) = parse_free_form(input);
-                (result, length - 1)
-            }
+            _ => todo!("Free form parsing not available yet")
         };
         (result, length + 1)
     }
