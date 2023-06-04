@@ -38,7 +38,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
                 "ECHO".as_bytes().into(),
                 vec!["echo <msg>".as_bytes().into()].into(),
                 "SET".as_bytes().into(),
-                vec!["set <key> <value>".as_bytes().into()].into(),
+                vec!["set <key> <value> [px <expiry-in-ms>]".as_bytes().into()].into(),
                 "GET".as_bytes().into(),
                 vec!["get <key>".as_bytes().into()].into(),
             ];
