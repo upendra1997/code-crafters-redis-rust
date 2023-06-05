@@ -57,19 +57,6 @@ impl<'a> From<i64> for Resp<'a> {
     }
 }
 
-// impl<'a> AsRef<str> for Resp<'a> {
-//     fn as_ref(&self) -> &str {
-//         match self {
-//             Resp::String(str) => str.as_ref(),
-//             Resp::Binary(str) => std::str::from_utf8(str.as_ref()).unwrap(),
-//             Resp::Error(str) => str.as_ref(),
-//             Resp::Array(_) => todo!(),
-//             Resp::Integer(n) => todo!(),
-//             Resp::Null => todo!(),
-//         }
-//     }
-// }
-
 fn parse_simple_string(request_buffer: &[u8]) -> (Resp, usize) {
     let pos = request_buffer
         .windows(2)
@@ -154,10 +141,6 @@ fn parse_array(request_buffer: &[u8]) -> (Resp, usize) {
         index += length;
     }
     (Resp::Array(array), index)
-}
-
-fn parse_free_form(_request_buffer: &[u8]) -> (Resp, usize) {
-    (Resp::Null, 0)
 }
 
 impl<'a> SerDe for Resp<'a> {
