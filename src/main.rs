@@ -17,30 +17,32 @@ async fn main() {
     loop {
         match listener.accept().await {
             Ok((mut stream, _addr)) => {
-                println!("accepted new connection");
-                let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                loop {
-                    if let Ok(n) = stream.read(&mut request_buffer).await {
-                        if n == 0 {
-                            eprintln!("read {} bytes", n);
+                tokio::spawn(async move {
+                    println!("accepted new connection");
+                    let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                    loop {
+                        if let Ok(n) = stream.read(&mut request_buffer).await {
+                            if n == 0 {
+                                eprintln!("read {} bytes", n);
+                                break;
+                            }
+                            println!("read {} bytes", n);
+                            println!(
+                                "REQ: {:?}",
+                                std::str::from_utf8(&request_buffer[..n]).unwrap()
+                            );
+                            let response = handle_input(&request_buffer[..n]);
+                            println!("RES: {:?}", std::str::from_utf8(&response).unwrap());
+                            if let Err(e) = stream.write_all(&response).await {
+                                eprintln!("Error writing {:?}", e);
+                            }
+                            stream.flush().await.unwrap();
+                        } else {
+                            eprintln!("error reading from tcp stream");
                             break;
                         }
-                        println!("read {} bytes", n);
-                        println!(
-                            "REQ: {:?}",
-                            std::str::from_utf8(&request_buffer[..n]).unwrap()
-                        );
-                        let response = handle_input(&request_buffer[..n]);
-                        println!("RES: {:?}", std::str::from_utf8(&response).unwrap());
-                        if let Err(e) = stream.write_all(&response).await {
-                            eprintln!("Error writing {:?}", e);
-                        }
-                        stream.flush().await.unwrap();
-                    } else {
-                        eprintln!("error reading from tcp stream");
-                        break;
                     }
-                }
+                });
             }
             Err(e) => {
                 eprintln!("error: {:?}", e);
