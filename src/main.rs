@@ -1,3 +1,5 @@
+use std::env::args;
+
 // Uncomment this block to pass the first stage
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -11,8 +13,13 @@ const REQUEST_BUFFER_SIZE: usize = 536870912;
 #[tokio::main]
 async fn main() {
     println!("Logs from your program will appear here!");
-
-    let listener = TcpListener::bind("127.0.0.1:6379").await.unwrap();
+    let mut port = 6379;
+    if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
+        port = std::env::args().last().unwrap().parse().unwrap();
+    }
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
+        .await
+        .unwrap();
 
     loop {
         match listener.accept().await {
