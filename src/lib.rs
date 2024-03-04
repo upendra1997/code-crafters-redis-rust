@@ -44,6 +44,10 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
             ];
             SerDe::serialize(Into::<Resp>::into(commands))
         }
+        "INFO" => {
+            let commands = vec!["role:master".as_bytes().into()];
+            SerDe::serialize(Into::<Resp>::into(commands))
+        }
         "ECHO" => {
             let first = arguments.pop_front();
             if first.is_none() {
