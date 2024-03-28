@@ -15,7 +15,7 @@ async fn main() {
     println!("Logs from your program will appear here!");
     let mut port = 6379;
     if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
-        port = std::env::args().last().unwrap().parse().unwrap();
+        port = std::env::args().nth(2).unwrap().parse().unwrap();
     }
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
         .await

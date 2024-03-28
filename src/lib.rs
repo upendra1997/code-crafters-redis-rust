@@ -18,6 +18,11 @@ lazy_static! {
         Mutex::new(BinaryHeap::new());
 }
 
+struct Node {
+    host: String,
+    port: usize,
+}
+
 fn make_error(str: &str) -> Resp {
     Resp::Error(Cow::Borrowed(str))
 }
@@ -45,7 +50,21 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
             SerDe::serialize(Into::<Resp>::into(commands))
         }
         "INFO" => {
-            let commands = "role:master".as_bytes();
+            let master = match std::env::args()
+                .into_iter()
+                .position(|arg| arg.eq("--replicaof"))
+            {
+                Some(i) => Some(Node {
+                    host: std::env::args().nth(i + 1).unwrap(),
+                    port: std::env::args().nth(i + 2).unwrap().parse().unwrap(),
+                }),
+                None => None,
+            };
+
+            let commands = match master {
+                None => "role:master".as_bytes(),
+                Some(_) => "role:slave".as_bytes(),
+            };
             SerDe::serialize(Into::<Resp>::into(commands))
         }
         "ECHO" => {
