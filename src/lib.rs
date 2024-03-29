@@ -65,7 +65,19 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
                 None => "role:master".as_bytes(),
                 Some(_) => "role:slave".as_bytes(),
             };
-            SerDe::serialize(Into::<Resp>::into(commands))
+            let first = arguments.pop_front();
+            match first {
+                Some(Resp::Binary(first)) => {
+                    let first = first.to_ascii_uppercase();
+                    if first == b"REPLICATION" {
+                        SerDe::serialize(Into::<Resp>::into("master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\nmaster_repl_offset:0".as_bytes()))
+                    } else {
+                        SerDe::serialize(make_error("info only supports replication as argumnt"))
+                    }
+                }
+                None => SerDe::serialize(Into::<Resp>::into(commands)),
+                _ => SerDe::serialize(make_error("protocol error")),
+            }
         }
         "ECHO" => {
             let first = arguments.pop_front();
