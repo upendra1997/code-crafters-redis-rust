@@ -69,11 +69,11 @@ async fn handle_replication() {
         .await
         .unwrap();
     let ping = SerDe::serialize(Resp::Array(vec![Resp::Binary("ping".as_bytes().into())]));
-    let replconf_listen_port = SerDe::serialize(Resp::Array(vec![Resp::Binary(
-        format!("REPLCONF listening-port {}", NODE.port)
-            .as_bytes()
-            .into(),
-    )]));
+    let replconf_listen_port = SerDe::serialize(Resp::Array(vec![
+        Resp::Binary("REPLCONF".as_bytes().into()),
+        Resp::Binary("listening-port".as_bytes().into()),
+        Resp::Binary(format!("{}", NODE.port).as_bytes().into()),
+    ]));
     let replconf_cap = SerDe::serialize(Resp::Array(vec![Resp::Binary(
         "REPLCONF capa psync2".as_bytes().into(),
     )]));
