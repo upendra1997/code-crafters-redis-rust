@@ -63,11 +63,16 @@ async fn handle_connection(mut stream: TcpStream) {
     }
 }
 
-async fn handle_replication() {
+async fn send_command_to_master(command: &[u8]) {
     let master = NODE.master.clone().unwrap();
     let mut stream = TcpStream::connect(format!("{}:{}", master.host, master.port))
         .await
         .unwrap();
+    stream.write_all(command).await.unwrap();
+    stream.flush().await.unwrap();
+}
+
+async fn handle_replication() {
     let ping = SerDe::serialize(Resp::Array(vec![Resp::Binary("ping".as_bytes().into())]));
     let replconf_listen_port = SerDe::serialize(Resp::Array(vec![
         Resp::Binary("REPLCONF".as_bytes().into()),
@@ -79,7 +84,7 @@ async fn handle_replication() {
         Resp::Binary("capa".as_bytes().into()),
         Resp::Binary("psync2".as_bytes().into()),
     ]));
-    stream.write_all(&ping).await.unwrap();
-    stream.write_all(&replconf_listen_port).await.unwrap();
-    stream.write_all(&replconf_cap).await.unwrap();
+    send_command_to_master(&ping).await;
+    send_command_to_master(&replconf_listen_port).await;
+    send_command_to_master(&replconf_cap).await;
 }
