@@ -67,6 +67,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
     let command = command.unwrap().to_uppercase();
     match command.as_ref() {
         "PING" => SerDe::serialize(Resp::String("PONG".into())),
+        "REPLCONF" => SerDe::serialize(Resp::String("OK".into())),
         "COMMAND" => {
             let commands = vec![
                 "PING".as_bytes().into(),
@@ -79,6 +80,13 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
                 vec!["get <key>".as_bytes().into()].into(),
             ];
             SerDe::serialize(Into::<Resp>::into(commands))
+        }
+        "PSYNC" => {
+            let repl_id = arguments.pop_front();
+            let offest = arguments.pop_front();
+            SerDe::serialize(Resp::String(
+                format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
+            ))
         }
         "INFO" => {
             let commands = match NODE.master {
