@@ -74,9 +74,11 @@ async fn handle_replication() {
         Resp::Binary("listening-port".as_bytes().into()),
         Resp::Binary(format!("{}", NODE.port).as_bytes().into()),
     ]));
-    let replconf_cap = SerDe::serialize(Resp::Array(vec![Resp::Binary(
-        "REPLCONF capa psync2".as_bytes().into(),
-    )]));
+    let replconf_cap = SerDe::serialize(Resp::Array(vec![
+        Resp::Binary("REPLCONF".as_bytes().into()),
+        Resp::Binary("capa".as_bytes().into()),
+        Resp::Binary("psync2".as_bytes().into()),
+    ]));
     stream.write_all(&ping).await.unwrap();
     stream.write_all(&replconf_listen_port).await.unwrap();
     stream.write_all(&replconf_cap).await.unwrap();
