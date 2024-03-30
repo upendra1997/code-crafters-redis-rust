@@ -16,6 +16,8 @@ pub mod resp;
 pub struct Node {
     pub host: String,
     pub port: usize,
+    pub replicatio_id: String,
+    pub offset: i64,
 }
 
 #[derive(Clone)]
@@ -39,6 +41,8 @@ lazy_static! {
             Some(i) => Some(Node {
                 host: std::env::args().nth(i + 1).unwrap(),
                 port: std::env::args().nth(i + 2).unwrap().parse().unwrap(),
+                replicatio_id: "?".to_owned(),
+                offset: -1,
             }),
             None => None,
         };

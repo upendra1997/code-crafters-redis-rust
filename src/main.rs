@@ -1,4 +1,3 @@
-// Uncomment this block to pass the first stage
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -91,7 +90,13 @@ async fn handle_replication() {
         Resp::Binary("capa".as_bytes().into()),
         Resp::Binary("psync2".as_bytes().into()),
     ]));
+    let psync_init = SerDe::serialize(Resp::Array(vec![
+        Resp::Binary("PSYNC".as_bytes().into()),
+        Resp::Binary(format!("{}", master.replicatio_id).as_bytes().into()),
+        Resp::Binary(format!("{}", master.offset).as_bytes().into()),
+    ]));
     send_command_to_master(&mut stream, &ping).await;
     send_command_to_master(&mut stream, &replconf_listen_port).await;
     send_command_to_master(&mut stream, &replconf_cap).await;
+    send_command_to_master(&mut stream, &psync_init).await;
 }
