@@ -25,6 +25,9 @@ pub struct State {
     pub master: Option<Node>,
     pub port: usize,
 }
+
+const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
+
 lazy_static! {
     pub static ref STORE: Mutex<HashMap<Vec<u8>, Vec<u8>>> = Mutex::new(HashMap::new());
     pub static ref EXPIRY: Mutex<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
@@ -84,9 +87,13 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
         "PSYNC" => {
             let repl_id = arguments.pop_front();
             let offest = arguments.pop_front();
-            SerDe::serialize(Resp::String(
-                format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
-            ))
+            [
+                SerDe::serialize(Resp::String(
+                    format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
+                )),
+                SerDe::serialize(Resp::File(Cow::Borrowed(EMPTY_RDB))),
+            ]
+            .concat()
         }
         "INFO" => {
             let commands = match NODE.master {
@@ -218,5 +225,6 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
         Resp::Integer(_) => todo!(),
         Resp::String(_) => todo!(),
         Resp::Null => todo!(),
+        Resp::File(_) => todo!(),
     }
 }

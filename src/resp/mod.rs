@@ -18,6 +18,7 @@ pub enum Resp<'a> {
     Error(Cow<'a, str>),
     Array(Vec<Resp<'a>>),
     Integer(i64),
+    File(Cow<'a, [u8]>),
     Null,
 }
 
@@ -118,6 +119,25 @@ fn parse_bulk_string(request_buffer: &[u8]) -> (Resp, usize) {
     }
 }
 
+fn parse_file(request_buffer: &[u8]) -> (Resp, usize) {
+    let pos = request_buffer
+        .windows(2)
+        .position(|arr| arr[0] == b'\r' && arr[1] == b'\n');
+    let number = pos
+        .and_then(|pos| std::str::from_utf8(&request_buffer[..pos]).ok())
+        .and_then(|res| res.parse::<isize>().ok());
+    match (number, pos) {
+        (Some(-1), Some(pos)) => (Resp::Null, pos + 2),
+        (Some(n), Some(p)) => (
+            Resp::File(Cow::Borrowed(
+                &request_buffer[(p + 2)..(p + 2 + n as usize)],
+            )),
+            p + 2 + n as usize,
+        ),
+        _ => panic!("invalid RESP bulk string"),
+    }
+}
+
 fn parse_array(request_buffer: &[u8]) -> (Resp, usize) {
     let pos = request_buffer
         .windows(2)
@@ -155,7 +175,13 @@ impl<'a> SerDe for Resp<'a> {
             b'+' => parse_simple_string(&input[1..]),
             b'-' => parse_error(&input[1..]),
             b':' => parse_integer(&input[1..]),
-            b'$' => parse_bulk_string(&input[1..]),
+            b'$' => {
+                if input.ends_with(b"\r\n") {
+                    parse_bulk_string(&input[1..])
+                } else {
+                    parse_file(&input[1..])
+                }
+            }
             b'*' => parse_array(&input[1..]),
             _ => todo!("Free form parsing not available yet"),
         };
@@ -174,6 +200,7 @@ impl<'a> SerDe for Resp<'a> {
                 "\r\n".as_bytes(),
             ]
             .concat(),
+            Resp::File(blob) => [format!("${}\r\n", blob.len()).as_bytes(), blob.as_ref()].concat(),
             Resp::Error(err) => format!("-{}\r\n", err).as_bytes().into(),
             Resp::Array(array) => [
                 format!("*{}\r\n", array.len()).as_bytes(),
