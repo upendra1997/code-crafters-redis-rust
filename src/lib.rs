@@ -10,17 +10,44 @@ use std::{
 };
 use tokio::time::Instant;
 
-mod resp;
+pub mod resp;
 
-lazy_static! {
-    static ref STORE: Mutex<HashMap<Vec<u8>, Vec<u8>>> = Mutex::new(HashMap::new());
-    static ref EXPIRY: Mutex<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
-        Mutex::new(BinaryHeap::new());
+#[derive(Clone)]
+pub struct Node {
+    pub host: String,
+    pub port: usize,
 }
 
-struct Node {
-    host: String,
-    port: usize,
+#[derive(Clone)]
+pub struct State {
+    pub master: Option<Node>,
+    pub port: usize,
+}
+lazy_static! {
+    pub static ref STORE: Mutex<HashMap<Vec<u8>, Vec<u8>>> = Mutex::new(HashMap::new());
+    pub static ref EXPIRY: Mutex<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
+        Mutex::new(BinaryHeap::new());
+    pub static ref NODE: State = {
+        let mut port = 6379;
+        if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
+            port = std::env::args().nth(2).unwrap().parse().unwrap();
+        }
+        let master = match std::env::args()
+            .into_iter()
+            .position(|arg| arg.eq("--replicaof"))
+        {
+            Some(i) => Some(Node {
+                host: std::env::args().nth(i + 1).unwrap(),
+                port: std::env::args().nth(i + 2).unwrap().parse().unwrap(),
+            }),
+            None => None,
+        };
+
+        State {
+            master: master,
+            port: port,
+        }
+    };
 }
 
 fn make_error(str: &str) -> Resp {
@@ -50,18 +77,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
             SerDe::serialize(Into::<Resp>::into(commands))
         }
         "INFO" => {
-            let master = match std::env::args()
-                .into_iter()
-                .position(|arg| arg.eq("--replicaof"))
-            {
-                Some(i) => Some(Node {
-                    host: std::env::args().nth(i + 1).unwrap(),
-                    port: std::env::args().nth(i + 2).unwrap().parse().unwrap(),
-                }),
-                None => None,
-            };
-
-            let commands = match master {
+            let commands = match NODE.master {
                 None => "role:master\n",
                 Some(_) => "role:slave\n",
             };
