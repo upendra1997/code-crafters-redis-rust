@@ -2,7 +2,7 @@ use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -24,7 +24,7 @@ async fn main() {
         });
     }
 
-    let mut streams: Arc<RwLock<Vec<StdTcpStream>>> = Arc::new(RwLock::new(vec![]));
+    let streams: Arc<RwLock<Vec<StdTcpStream>>> = Arc::new(RwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
     tokio::spawn(async move {
@@ -32,7 +32,7 @@ async fn main() {
             let mut streams = streamss.write().unwrap();
             for (i, stream) in streams.iter_mut().enumerate() {
                 println!("sendig {} data to replica {}", data.len(), i);
-                stream.write_all(&data);
+                stream.write_all(&data).unwrap();
             }
         }
     });
@@ -40,7 +40,7 @@ async fn main() {
         let sender = sender.clone();
         let streams = streams.clone();
         match listener.accept().await {
-            Ok((mut stream, _addr)) => {
+            Ok((stream, _addr)) => {
                 tokio::spawn(async move {
                     let stream = handle_connection(stream, sender.clone()).await;
                     println!("sendig commands to replica");
@@ -71,7 +71,7 @@ async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -
             );
             let (tx, rx) = mpsc::sync_channel(1);
             let request = &request_buffer[..n];
-            let response = handle_input(request, tx);
+            let (response, send_to_replica) = handle_input(request, tx);
             match std::str::from_utf8(&response) {
                 Ok(value) => {
                     println!("RES: {:?}", value);
@@ -89,9 +89,11 @@ async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -
                 break stream;
             }
             //send data to replicas
-            let replicas = &NODE.write().unwrap().replicas;
-            for sender in replicas {
-                sender.send(request.into());
+            if send_to_replica {
+                let replicas = &NODE.write().unwrap().replicas;
+                for sender in replicas {
+                    sender.send(request.into()).unwrap();
+                }
             }
         } else {
             eprintln!("error reading from tcp stream");

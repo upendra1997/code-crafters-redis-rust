@@ -1,6 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
-use std::sync::mpsc::{Sender, SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -9,8 +9,6 @@ use std::{
     sync::RwLock,
     time::Duration,
 };
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tokio::time::Instant;
 
 pub mod resp;
@@ -62,22 +60,23 @@ lazy_static! {
     };
 }
 
-fn make_error(str: &str) -> Resp {
-    Resp::Error(Cow::Borrowed(str))
+fn make_error(str: &str) -> (Vec<u8>, bool) {
+    (SerDe::serialize(Resp::Error(Cow::Borrowed(str))), false)
 }
 
 fn handle_command(
     command: impl AsRef<[u8]>,
     mut arguments: VecDeque<Resp>,
     sender: SyncSender<()>,
-) -> Vec<u8> {
+) -> (Vec<u8>, bool) {
     let command = command.as_ref();
     let command = str::from_utf8(command);
     if let Err(_e) = command {
-        return SerDe::serialize(make_error("command is not valid utf8"));
+        return make_error("command is not valid utf8");
     }
     let command = command.unwrap().to_uppercase();
-    match command.as_ref() {
+    let mut send_to_replicas = false;
+    let result = match command.as_ref() {
         "PING" => SerDe::serialize(Resp::String("PONG".into())),
         "REPLCONF" => SerDe::serialize(Resp::String("OK".into())),
         "COMMAND" => {
@@ -94,9 +93,9 @@ fn handle_command(
             SerDe::serialize(Into::<Resp>::into(commands))
         }
         "PSYNC" => {
-            let repl_id = arguments.pop_front();
-            let offest = arguments.pop_front();
-            sender.send(());
+            let _repl_id = arguments.pop_front();
+            let _offest = arguments.pop_front();
+            sender.send(()).unwrap();
             [
                 SerDe::serialize(Resp::String(
                     format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
@@ -120,30 +119,32 @@ fn handle_command(
                             [commands, replicaton_info].concat().as_bytes(),
                         ))
                     } else {
-                        SerDe::serialize(make_error("info only supports replication as argumnt"))
+                        return make_error("info only supports replication as argumnt");
                     }
                 }
                 None => SerDe::serialize(Into::<Resp>::into(commands.as_bytes())),
-                _ => SerDe::serialize(make_error("protocol error")),
+                _ => return make_error("protocol error"),
             }
         }
         "ECHO" => {
             let first = arguments.pop_front();
             if first.is_none() {
-                return SerDe::serialize(make_error("echo must be provided with a <msg>"));
+                return make_error("echo must be provided with a <msg>");
+            } else {
+                let first = first.unwrap();
+                SerDe::serialize(first)
             }
-            let first = first.unwrap();
-            SerDe::serialize(first)
         }
         "SET" => {
+            send_to_replicas = true;
             let first = arguments.pop_front();
             if first.is_none() {
-                return SerDe::serialize(make_error("SET must be provided with a <key>"));
+                return make_error("SET must be provided with a <key>");
             }
             let first = first.unwrap();
             let second = arguments.pop_front();
             if second.is_none() {
-                return SerDe::serialize(make_error("SET must be provided with a <value>"));
+                return make_error("SET must be provided with a <value>");
             }
             let second = second.unwrap();
             let key: Vec<u8> = first.into();
@@ -152,15 +153,11 @@ fn handle_command(
             let third = arguments.pop_front();
             if let Some(Resp::Binary(px)) = third {
                 if px.to_ascii_uppercase() != b"PX" {
-                    return SerDe::serialize(make_error(
-                        "error `SET <key> <value> PX <EXPIRY>` expected `PX`",
-                    ));
+                    return make_error("error `SET <key> <value> PX <EXPIRY>` expected `PX`");
                 }
                 let fourth = arguments.pop_front();
                 if fourth.is_none() {
-                    return SerDe::serialize(make_error(
-                        "SET must be provided with a <EXPIRY> time",
-                    ));
+                    return make_error("SET must be provided with a <EXPIRY> time");
                 }
                 let time = fourth.unwrap();
                 if let Resp::Binary(time) = time {
@@ -172,7 +169,7 @@ fn handle_command(
                             .unwrap();
                         EXPIRY.write().unwrap().push((Reverse(expiry), key));
                     } else {
-                        return SerDe::serialize(make_error("expiry time is not in range"));
+                        return make_error("expiry time is not in range");
                     }
                 }
             }
@@ -181,7 +178,7 @@ fn handle_command(
         "GET" => {
             let first = arguments.pop_front();
             if first.is_none() {
-                return SerDe::serialize(make_error("GET must be provided with a <key>"));
+                return make_error("GET must be provided with a <key>");
             }
             let key = first.unwrap().into();
             let mut store = STORE.write().unwrap();
@@ -211,23 +208,24 @@ fn handle_command(
                 command
             ))))
         }
-    }
+    };
+    (result, send_to_replicas)
 }
 
-pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<u8> {
+pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> (Vec<u8>, bool) {
     let (input, _) = SerDe::deserialize(request_buffer);
     match input {
         Resp::Array(vec) => {
             let mut arguments = VecDeque::from(vec);
             let command = arguments.pop_front();
             if command.is_none() {
-                return SerDe::serialize(make_error("no command provided"));
+                return make_error("no command provided");
             }
             let command = command.unwrap();
             if let Resp::Binary(command) = &command {
                 handle_command(command, arguments, sender)
             } else {
-                vec![]
+                (vec![], false)
             }
         }
         Resp::Binary(_) => todo!(),
