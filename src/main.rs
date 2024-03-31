@@ -94,6 +94,10 @@ async fn handle_connection(
                     println!("RES: {:?}", response);
                 }
             }
+            //send data to replicas before replying to client
+            if is_master && send_to_replica {
+                sender.send(request.into()).unwrap();
+            }
             if let Err(e) = stream.write_all(&response).await {
                 eprintln!("Error writing {:?}", e);
             }
@@ -101,10 +105,6 @@ async fn handle_connection(
             if is_master && rx.try_iter().next().is_some() {
                 NODE.write().unwrap().replicas.push(sender);
                 break Some(stream);
-            }
-            //send data to replicas
-            if is_master && send_to_replica {
-                sender.send(request.into()).unwrap();
             }
         } else {
             eprintln!("error reading from tcp stream");
