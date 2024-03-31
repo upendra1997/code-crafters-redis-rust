@@ -50,11 +50,12 @@ async fn main() {
         match listener.accept().await {
             Ok((stream, _addr)) => {
                 tokio::spawn(async move {
-                    let stream = handle_connection(stream, sender).await;
-                    if is_master {
-                        println!("sendig commands to replica");
-                        let mut streams = streams.write().unwrap();
-                        streams.push(stream.into_std().unwrap());
+                    if let Some(stream) = handle_connection(stream, sender).await {
+                        if is_master {
+                            println!("sendig commands to replica");
+                            let mut streams = streams.write().unwrap();
+                            streams.push(stream.into_std().unwrap());
+                        }
                     }
                 });
             }
@@ -65,17 +66,19 @@ async fn main() {
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -> TcpStream {
+async fn handle_connection(
+    mut stream: TcpStream,
+    sender: SyncSender<Vec<u8>>,
+) -> Option<TcpStream> {
     let is_master = NODE.read().unwrap().master.is_none();
     println!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {
         if let Ok(n) = stream.read(&mut request_buffer).await {
-            if n == 0 {
-                eprintln!("read {} bytes", n);
-                break stream;
-            }
             println!("read {} bytes", n);
+            if n == 0 {
+                break None;
+            }
             println!(
                 "REQ: {:?}",
                 std::str::from_utf8(&request_buffer[..n]).unwrap()
@@ -97,7 +100,7 @@ async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -
             stream.flush().await.unwrap();
             if is_master && rx.try_iter().next().is_some() {
                 NODE.write().unwrap().replicas.push(sender);
-                break stream;
+                break Some(stream);
             }
             //send data to replicas
             if is_master && send_to_replica {
@@ -105,7 +108,7 @@ async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -
             }
         } else {
             eprintln!("error reading from tcp stream");
-            break stream;
+            break None;
         }
     }
 }
