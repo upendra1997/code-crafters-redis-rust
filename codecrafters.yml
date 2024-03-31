@@ -8,4 +8,4 @@ debug: false
 # on Codecrafters.
 #
 # Available versions: rust-1.68
-language_pack: rust-1.73
+language_pack: rust-1.68
