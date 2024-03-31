@@ -1,13 +1,16 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
+use std::sync::mpsc::{Receiver, Sender, SyncSender};
 use std::{
     borrow::Cow,
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, VecDeque},
     str,
-    sync::Mutex,
+    sync::RwLock,
     time::Duration,
 };
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio::time::Instant;
 
 pub mod resp;
@@ -24,15 +27,16 @@ pub struct Node {
 pub struct State {
     pub master: Option<Node>,
     pub port: usize,
+    pub replicas: Vec<Sender<Vec<u8>>>,
 }
 
 const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
 
 lazy_static! {
-    pub static ref STORE: Mutex<HashMap<Vec<u8>, Vec<u8>>> = Mutex::new(HashMap::new());
-    pub static ref EXPIRY: Mutex<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
-        Mutex::new(BinaryHeap::new());
-    pub static ref NODE: State = {
+    pub static ref STORE: RwLock<HashMap<Vec<u8>, Vec<u8>>> = RwLock::new(HashMap::new());
+    pub static ref EXPIRY: RwLock<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
+        RwLock::new(BinaryHeap::new());
+    pub static ref NODE: RwLock<State> = {
         let mut port = 6379;
         if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
             port = std::env::args().nth(2).unwrap().parse().unwrap();
@@ -50,10 +54,11 @@ lazy_static! {
             None => None,
         };
 
-        State {
+        RwLock::new(State {
             master: master,
             port: port,
-        }
+            replicas: vec![],
+        })
     };
 }
 
@@ -61,7 +66,11 @@ fn make_error(str: &str) -> Resp {
     Resp::Error(Cow::Borrowed(str))
 }
 
-fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> Vec<u8> {
+fn handle_command(
+    command: impl AsRef<[u8]>,
+    mut arguments: VecDeque<Resp>,
+    sender: SyncSender<()>,
+) -> Vec<u8> {
     let command = command.as_ref();
     let command = str::from_utf8(command);
     if let Err(_e) = command {
@@ -87,6 +96,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
         "PSYNC" => {
             let repl_id = arguments.pop_front();
             let offest = arguments.pop_front();
+            sender.send(());
             [
                 SerDe::serialize(Resp::String(
                     format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
@@ -96,7 +106,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
             .concat()
         }
         "INFO" => {
-            let commands = match NODE.master {
+            let commands = match NODE.read().unwrap().master {
                 None => "role:master\n",
                 Some(_) => "role:slave\n",
             };
@@ -138,7 +148,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
             let second = second.unwrap();
             let key: Vec<u8> = first.into();
             let value = second.into();
-            STORE.lock().unwrap().insert(key.clone(), value);
+            STORE.write().unwrap().insert(key.clone(), value);
             let third = arguments.pop_front();
             if let Some(Resp::Binary(px)) = third {
                 if px.to_ascii_uppercase() != b"PX" {
@@ -160,7 +170,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
                         let expiry = Instant::now()
                             .checked_add(Duration::from_millis(time))
                             .unwrap();
-                        EXPIRY.lock().unwrap().push((Reverse(expiry), key));
+                        EXPIRY.write().unwrap().push((Reverse(expiry), key));
                     } else {
                         return SerDe::serialize(make_error("expiry time is not in range"));
                     }
@@ -174,9 +184,9 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
                 return SerDe::serialize(make_error("GET must be provided with a <key>"));
             }
             let key = first.unwrap().into();
-            let mut store = STORE.lock().unwrap();
+            let mut store = STORE.write().unwrap();
             {
-                let mut expiry = EXPIRY.lock().unwrap();
+                let mut expiry = EXPIRY.write().unwrap();
                 while let Some(expire_key) = expiry.peek().map(|(time, _)| time.0 <= Instant::now())
                 {
                     if expire_key {
@@ -204,7 +214,7 @@ fn handle_command(command: impl AsRef<[u8]>, mut arguments: VecDeque<Resp>) -> V
     }
 }
 
-pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
+pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<u8> {
     let (input, _) = SerDe::deserialize(request_buffer);
     match input {
         Resp::Array(vec) => {
@@ -215,7 +225,7 @@ pub fn handle_input(request_buffer: &[u8]) -> Vec<u8> {
             }
             let command = command.unwrap();
             if let Resp::Binary(command) = &command {
-                handle_command(command, arguments)
+                handle_command(command, arguments, sender)
             } else {
                 vec![]
             }
