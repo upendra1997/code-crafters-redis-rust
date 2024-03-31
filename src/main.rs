@@ -27,25 +27,35 @@ async fn main() {
     let streams: Arc<RwLock<Vec<StdTcpStream>>> = Arc::new(RwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
-    tokio::spawn(async move {
-        for data in reciver {
-            let mut streams = streamss.write().unwrap();
-            for (i, stream) in streams.iter_mut().enumerate() {
-                println!("sendig {} data to replica {}", data.len(), i);
-                stream.write_all(&data).unwrap();
+    let is_master = NODE.read().unwrap().master.is_none();
+    if is_master {
+        println!("Node is master");
+    } else {
+        println!("Node is replica");
+    }
+    if is_master {
+        tokio::spawn(async move {
+            for data in reciver {
+                let mut streams = streamss.write().unwrap();
+                for (i, stream) in streams.iter_mut().enumerate() {
+                    println!("sendig {} data to replica {}", data.len(), i);
+                    stream.write_all(&data).unwrap();
+                }
             }
-        }
-    });
+        });
+    }
     loop {
         let sender = sender.clone();
         let streams = streams.clone();
         match listener.accept().await {
             Ok((stream, _addr)) => {
                 tokio::spawn(async move {
-                    let stream = handle_connection(stream, sender.clone()).await;
-                    println!("sendig commands to replica");
-                    let mut streams = streams.write().unwrap();
-                    streams.push(stream.into_std().unwrap());
+                    let stream = handle_connection(stream, sender).await;
+                    if is_master {
+                        println!("sendig commands to replica");
+                        let mut streams = streams.write().unwrap();
+                        streams.push(stream.into_std().unwrap());
+                    }
                 });
             }
             Err(e) => {
@@ -56,6 +66,7 @@ async fn main() {
 }
 
 async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -> TcpStream {
+    let is_master = NODE.read().unwrap().master.is_none();
     println!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {
@@ -84,16 +95,13 @@ async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -
                 eprintln!("Error writing {:?}", e);
             }
             stream.flush().await.unwrap();
-            if rx.try_iter().next().is_some() {
-                NODE.write().unwrap().replicas.push(sender.clone());
+            if is_master && rx.try_iter().next().is_some() {
+                NODE.write().unwrap().replicas.push(sender);
                 break stream;
             }
             //send data to replicas
-            if send_to_replica {
-                let replicas = &NODE.write().unwrap().replicas;
-                for sender in replicas {
-                    sender.send(request.into()).unwrap();
-                }
+            if is_master && send_to_replica {
+                sender.send(request.into()).unwrap();
             }
         } else {
             eprintln!("error reading from tcp stream");
