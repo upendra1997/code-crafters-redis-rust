@@ -2,7 +2,7 @@ use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -25,7 +25,7 @@ async fn main() {
     }
 
     let mut streams: Arc<RwLock<Vec<StdTcpStream>>> = Arc::new(RwLock::new(vec![]));
-    let (sender, reciver): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
+    let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
     tokio::spawn(async move {
         for data in reciver {
@@ -55,7 +55,7 @@ async fn main() {
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, sender: Sender<Vec<u8>>) -> TcpStream {
+async fn handle_connection(mut stream: TcpStream, sender: SyncSender<Vec<u8>>) -> TcpStream {
     println!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {

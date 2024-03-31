@@ -1,6 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
-use std::sync::mpsc::{Receiver, Sender, SyncSender};
+use std::sync::mpsc::{Sender, SyncSender};
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -27,7 +27,7 @@ pub struct Node {
 pub struct State {
     pub master: Option<Node>,
     pub port: usize,
-    pub replicas: Vec<Sender<Vec<u8>>>,
+    pub replicas: Vec<SyncSender<Vec<u8>>>,
 }
 
 const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
