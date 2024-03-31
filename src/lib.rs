@@ -69,6 +69,7 @@ fn handle_command(
     mut arguments: VecDeque<Resp>,
     sender: SyncSender<()>,
 ) -> (Vec<u8>, bool) {
+    let is_master = NODE.read().unwrap().master.is_none();
     let command = command.as_ref();
     let command = str::from_utf8(command);
     if let Err(_e) = command {
@@ -76,9 +77,24 @@ fn handle_command(
     }
     let command = command.unwrap().to_uppercase();
     let mut send_to_replicas = false;
+    let mut send_to_master = false;
     let result = match command.as_ref() {
         "PING" => SerDe::serialize(Resp::String("PONG".into())),
-        "REPLCONF" => SerDe::serialize(Resp::String("OK".into())),
+        "REPLCONF" => {
+            if is_master {
+                SerDe::serialize(Resp::String("OK".into()))
+            } else {
+                send_to_master = true;
+                SerDe::serialize(Resp::Array(
+                    [
+                        "replconf".as_bytes().into(),
+                        "ack".as_bytes().into(),
+                        "0".as_bytes().into(),
+                    ]
+                    .into(),
+                ))
+            }
+        }
         "COMMAND" => {
             let commands = vec![
                 "PING".as_bytes().into(),
@@ -209,7 +225,11 @@ fn handle_command(
             ))))
         }
     };
-    (result, send_to_replicas)
+    if is_master {
+        (result, send_to_replicas)
+    } else {
+        (result, send_to_master)
+    }
 }
 
 pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> (Vec<u8>, bool) {

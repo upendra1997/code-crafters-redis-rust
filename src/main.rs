@@ -164,7 +164,13 @@ async fn handle_replication() {
                 println!("reply from master: {:?}", &request_buffer[..n]);
             }
         }
-        let _ = handle_input(&request_buffer[..n], tx);
+        let (response, send_to_master) = handle_input(&request_buffer[..n], tx);
+        if send_to_master {
+            if let Err(e) = stream.write_all(&response).await {
+                eprintln!("Error writing {:?}", e);
+            }
+            stream.flush().await.unwrap();
+        }
         let _ = rx.try_recv();
     }
 }
