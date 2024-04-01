@@ -1,6 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{self, SyncSender};
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -254,8 +254,9 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> (Vec<u8>, 
         Resp::String(_) => todo!(),
         Resp::Null => todo!(),
         Resp::File(_data) => {
+            // println!("processing rdb file data: {:?}", _data);
             // let (tx, rx) = mpsc::sync_channel(1);
-            // let result = handle_input(&data, tx);
+            // let result = handle_input(&_data, tx);
             // let _ = rx.try_recv();
             // result
             (vec![], false)

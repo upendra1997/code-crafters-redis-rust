@@ -24,7 +24,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<RwLock<Vec<StdTcpStream>>> = Arc::new(RwLock::new(vec![]));
+    let streams: Arc<RwLock<Vec<(StdTcpStream, usize)>>> = Arc::new(RwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
@@ -35,13 +35,19 @@ async fn main() {
     }
     if is_master {
         tokio::spawn(async move {
+            let mut command_buffer = Vec::new();
             for data in reciver {
                 let mut streams = streamss.write().unwrap();
                 let mut useless_streams = vec![];
-                for (i, stream) in streams.iter_mut().enumerate() {
-                    println!("sendig {} data to replica {}", data.len(), i);
-                    if let Err(_) = stream.write_all(&data) {
-                        useless_streams.push(i);
+                command_buffer.push(data);
+                for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                    for data in &command_buffer[*offset..] {
+                        println!("sendig {} data to replica {}", data.len(), i);
+                        if let Err(_) = stream.write_all(&data) {
+                            useless_streams.push(i);
+                            break;
+                        }
+                        *offset += 1;
                     }
                 }
                 for i in useless_streams {
@@ -60,7 +66,7 @@ async fn main() {
                         if is_master {
                             println!("sendig commands to replica");
                             let mut streams = streams.write().unwrap();
-                            streams.push(stream.into_std().unwrap());
+                            streams.push((stream.into_std().unwrap(), 0));
                         }
                     }
                 });

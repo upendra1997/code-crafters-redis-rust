@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use crate::EMPTY_RDB;
+
 pub trait SerDe {
     type Input;
     type Output;
@@ -119,13 +121,19 @@ fn parse_bulk_string(request_buffer: &[u8]) -> (Resp, usize) {
     }
 }
 
-fn parse_file(request_buffer: &[u8]) -> (Resp, usize) {
+fn parse_rdb_file(request_buffer: &[u8]) -> (Resp, usize) {
+    // let n = request_buffer.len();
+    // let request_buffer = &request_buffer[EMPTY_RDB.len()..];
     let pos = request_buffer
         .windows(2)
         .position(|arr| arr[0] == b'\r' && arr[1] == b'\n');
     let number = pos
         .and_then(|pos| std::str::from_utf8(&request_buffer[..pos]).ok())
         .and_then(|res| res.parse::<isize>().ok());
+    println!(
+        "printing redis file {:?} {:?} {:?}",
+        number, pos, request_buffer
+    );
     match (number, pos) {
         (Some(-1), Some(pos)) => (Resp::Null, pos + 2),
         (Some(n), Some(p)) => (
@@ -136,6 +144,7 @@ fn parse_file(request_buffer: &[u8]) -> (Resp, usize) {
         ),
         _ => panic!("invalid RESP file"),
     }
+    // (Resp::File(Cow::Borrowed(&request_buffer)), n)
 }
 
 fn parse_array(request_buffer: &[u8]) -> (Resp, usize) {
@@ -179,7 +188,7 @@ impl<'a> SerDe for Resp<'a> {
                 if input.ends_with(b"\r\n") {
                     parse_bulk_string(&input[1..])
                 } else {
-                    parse_file(&input[1..])
+                    parse_rdb_file(&input[1..])
                 }
             }
             b'*' => parse_array(&input[1..]),
