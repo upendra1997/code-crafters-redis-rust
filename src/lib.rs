@@ -253,6 +253,12 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> (Vec<u8>, 
         Resp::Integer(_) => todo!(),
         Resp::String(_) => todo!(),
         Resp::Null => todo!(),
-        Resp::File(_) => todo!(),
+        Resp::File(_data) => {
+            // let (tx, rx) = mpsc::sync_channel(1);
+            // let result = handle_input(&data, tx);
+            // let _ = rx.try_recv();
+            // result
+            (vec![], false)
+        }
     }
 }

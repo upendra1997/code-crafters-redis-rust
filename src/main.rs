@@ -37,9 +37,15 @@ async fn main() {
         tokio::spawn(async move {
             for data in reciver {
                 let mut streams = streamss.write().unwrap();
+                let mut useless_streams = vec![];
                 for (i, stream) in streams.iter_mut().enumerate() {
                     println!("sendig {} data to replica {}", data.len(), i);
-                    stream.write_all(&data).unwrap();
+                    if let Err(_) = stream.write_all(&data) {
+                        useless_streams.push(i);
+                    }
+                }
+                for i in useless_streams {
+                    streams.remove(i);
                 }
             }
         });
@@ -77,7 +83,7 @@ async fn handle_connection(
         if let Ok(n) = stream.read(&mut request_buffer).await {
             println!("read {} bytes", n);
             if n == 0 {
-                break None;
+                break Some(stream);
             }
             println!(
                 "REQ: {:?}",
@@ -159,23 +165,40 @@ async fn handle_replication() {
     loop {
         let n = stream.read(&mut request_buffer).await.unwrap();
         if n == 0 {
-            break;
+            continue;
         }
         let (tx, rx) = mpsc::sync_channel(1);
         match std::str::from_utf8(&request_buffer[..n]) {
             Ok(value) => {
-                println!("reply from master: {}", value);
+                println!("commands from master: {}", value);
             }
             Err(_) => {
-                println!("reply from master: {:?}", &request_buffer[..n]);
+                println!("commands from master: {:?}", &request_buffer[..n]);
             }
         }
         let (response, send_to_master) = handle_input(&request_buffer[..n], tx);
         if send_to_master {
+            match std::str::from_utf8(&response) {
+                Ok(value) => {
+                    println!("reply to master: {}", value);
+                }
+                Err(_) => {
+                    println!("reply to master: {:?}", &response);
+                }
+            }
             if let Err(e) = stream.write_all(&response).await {
                 eprintln!("Error writing {:?}", e);
             }
             stream.flush().await.unwrap();
+        } else {
+            match std::str::from_utf8(&response) {
+                Ok(value) => {
+                    println!("processed response {}", value);
+                }
+                Err(_) => {
+                    println!("processed response: {:?}", &response);
+                }
+            }
         }
         let _ = rx.try_recv();
     }

@@ -134,7 +134,7 @@ fn parse_file(request_buffer: &[u8]) -> (Resp, usize) {
             )),
             p + 2 + n as usize,
         ),
-        _ => panic!("invalid RESP bulk string"),
+        _ => panic!("invalid RESP file"),
     }
 }
 
