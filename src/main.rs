@@ -35,18 +35,18 @@ async fn main() {
     }
     if is_master {
         tokio::spawn(async move {
-            let mut command_buffer: Vec<Vec<u8>> = Vec::new();
+            // let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
                 let mut streams = streamss.write().unwrap();
                 let mut useless_streams = vec![];
                 // command_buffer.push(data);
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
-                    for data in &command_buffer[*offset..] {
+                    // for data in &command_buffer[*offset..] {
                         println!("sendig {} data to replica {}", data.len(), i);
                         if let Err(_) = stream.write_all(&data) {
                             useless_streams.push(i);
-                            break;
-                        }
+                            // break;
+                        // }
                         *offset += 1;
                     }
                 }
