@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 
-use crate::EMPTY_RDB;
-
 pub trait SerDe {
     type Input;
     type Output;
@@ -14,6 +12,7 @@ pub trait SerDe {
         Self: Sized;
 }
 
+#[derive(Debug)]
 pub enum Resp<'a> {
     String(Cow<'a, str>),
     Binary(Cow<'a, [u8]>),
@@ -22,6 +21,15 @@ pub enum Resp<'a> {
     Integer(i64),
     File(Cow<'a, [u8]>),
     Null,
+    Ignore(u8),
+}
+
+fn make_not_sure(request_buffer: &[u8], message: u32) -> (Resp, usize) {
+    println!(
+        "trying to parse request_buffer: {:?}, but failed on {}",
+        request_buffer, message
+    );
+    return (Resp::Ignore(request_buffer[0]), 0);
 }
 
 impl<'a> From<&'a str> for Resp<'a> {
@@ -67,9 +75,9 @@ fn parse_simple_string(request_buffer: &[u8]) -> (Resp, usize) {
     match pos {
         Some(pos) => match std::str::from_utf8(&request_buffer[..pos]) {
             Ok(str) => (Resp::String(Cow::Borrowed(str)), pos + 2),
-            Err(_e) => panic!("Error parsing RESP simple string - invalid utf8"),
+            Err(_e) => make_not_sure(request_buffer, line!()),
         },
-        None => panic!("invalid RESP simple string"),
+        None => make_not_sure(request_buffer, line!()),
     }
 }
 
@@ -80,9 +88,9 @@ fn parse_error(request_buffer: &[u8]) -> (Resp, usize) {
     match pos {
         Some(pos) => match std::str::from_utf8(&request_buffer[..pos]) {
             Ok(str) => (Resp::Error(Cow::Borrowed(str)), pos + 2),
-            Err(_e) => panic!("Error parsing RESP error - invalid utf8"),
+            Err(_e) => make_not_sure(request_buffer, line!()),
         },
-        None => panic!("invalid RESP error"),
+        None => make_not_sure(request_buffer, line!()),
     }
 }
 
@@ -94,11 +102,11 @@ fn parse_integer(request_buffer: &[u8]) -> (Resp, usize) {
         Some(pos) => match std::str::from_utf8(&request_buffer[..pos]) {
             Ok(str) => match str.parse::<i64>() {
                 Ok(n) => (Resp::Integer(n), pos + 2),
-                Err(_e) => panic!("Error parsing RESP integers"),
+                Err(_e) => make_not_sure(request_buffer, line!()),
             },
-            Err(_e) => panic!("Error parsing RESP integers - invalid utf8"),
+            Err(_e) => make_not_sure(request_buffer, line!()),
         },
-        None => panic!("invalid RESP error"),
+        None => make_not_sure(request_buffer, line!()),
     }
 }
 
@@ -117,7 +125,7 @@ fn parse_bulk_string(request_buffer: &[u8]) -> (Resp, usize) {
             )),
             p + 4 + n as usize,
         ),
-        _ => panic!("invalid RESP bulk string"),
+        _ => make_not_sure(request_buffer, line!()),
     }
 }
 
@@ -142,7 +150,7 @@ fn parse_rdb_file(request_buffer: &[u8]) -> (Resp, usize) {
             )),
             p + 2 + n as usize,
         ),
-        _ => panic!("invalid RESP file"),
+        _ => make_not_sure(request_buffer, line!()),
     }
     // (Resp::File(Cow::Borrowed(&request_buffer)), n)
 }
@@ -155,10 +163,10 @@ fn parse_array(request_buffer: &[u8]) -> (Resp, usize) {
         .and_then(|pos| std::str::from_utf8(&request_buffer[..pos]).ok())
         .and_then(|res| res.parse::<usize>().ok());
     if pos.is_none() {
-        panic!("invalid RESP array")
+        return make_not_sure(request_buffer, line!());
     }
     if number.is_none() {
-        panic!("invalid RESP array")
+        return make_not_sure(request_buffer, line!());
     }
     let pos = pos.unwrap();
     let number = number.unwrap();
@@ -186,13 +194,13 @@ impl<'a> SerDe for Resp<'a> {
             b':' => parse_integer(&input[1..]),
             b'$' => {
                 if input.ends_with(b"\r\n") {
-                    parse_bulk_string(&input[1..])
+                    parse_bulk_string(&input[1..(input.len() - 2)])
                 } else {
                     parse_rdb_file(&input[1..])
                 }
             }
             b'*' => parse_array(&input[1..]),
-            _ => todo!("Free form parsing not available yet"),
+            unknown => (Resp::Ignore(unknown), 0),
         };
         (result, length + 1)
     }
@@ -222,6 +230,7 @@ impl<'a> SerDe for Resp<'a> {
             .concat(),
             Resp::Integer(number) => format!(":{}\r\n", number).as_bytes().into(),
             Resp::Null => "$-1\r\n".to_string().as_bytes().into(),
+            Resp::Ignore(b) => [b].to_vec(),
         }
     }
 }

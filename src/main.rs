@@ -97,23 +97,24 @@ async fn handle_connection(
             );
             let (tx, rx) = mpsc::sync_channel(1);
             let request = &request_buffer[..n];
-            let (response, send_to_replica) = handle_input(request, tx);
-            match std::str::from_utf8(&response) {
-                Ok(value) => {
-                    println!("RES: {:?}", value);
+            for (response, send_to_replica) in handle_input(request, tx) {
+                match std::str::from_utf8(&response) {
+                    Ok(value) => {
+                        println!("RES: {:?}", value);
+                    }
+                    Err(_) => {
+                        println!("RES: {:?}", response);
+                    }
                 }
-                Err(_) => {
-                    println!("RES: {:?}", response);
+                //send data to replicas before replying to client
+                if is_master && send_to_replica {
+                    sender.send(request.into()).unwrap();
                 }
+                if let Err(e) = stream.write_all(&response).await {
+                    eprintln!("Error writing {:?}", e);
+                }
+                stream.flush().await.unwrap();
             }
-            //send data to replicas before replying to client
-            if is_master && send_to_replica {
-                sender.send(request.into()).unwrap();
-            }
-            if let Err(e) = stream.write_all(&response).await {
-                eprintln!("Error writing {:?}", e);
-            }
-            stream.flush().await.unwrap();
             if is_master && rx.try_iter().next().is_some() {
                 NODE.write().unwrap().replicas.push(sender);
                 break Some(stream);
@@ -182,28 +183,20 @@ async fn handle_replication() {
                 println!("commands from master: {:?}", &request_buffer[..n]);
             }
         }
-        let (response, send_to_master) = handle_input(&request_buffer[..n], tx);
-        if send_to_master {
-            match std::str::from_utf8(&response) {
-                Ok(value) => {
-                    println!("reply to master: {}", value);
+        for (response, send_to_master) in handle_input(&request_buffer[..n], tx) {
+            if send_to_master {
+                match std::str::from_utf8(&response) {
+                    Ok(value) => {
+                        println!("reply to master: {}", value);
+                    }
+                    Err(_) => {
+                        println!("reply to master: {:?}", &response);
+                    }
                 }
-                Err(_) => {
-                    println!("reply to master: {:?}", &response);
+                if let Err(e) = stream.write_all(&response).await {
+                    eprintln!("Error writing {:?}", e);
                 }
-            }
-            if let Err(e) = stream.write_all(&response).await {
-                eprintln!("Error writing {:?}", e);
-            }
-            stream.flush().await.unwrap();
-        } else {
-            match std::str::from_utf8(&response) {
-                Ok(value) => {
-                    println!("processed response {}", value);
-                }
-                Err(_) => {
-                    println!("processed response: {:?}", &response);
-                }
+                stream.flush().await.unwrap();
             }
         }
         let _ = rx.try_recv();

@@ -1,6 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
-use std::sync::mpsc::{self, SyncSender};
+use std::sync::mpsc::SyncSender;
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -11,6 +11,7 @@ use std::{
 };
 use tokio::time::Instant;
 
+mod rdb;
 pub mod resp;
 
 #[derive(Clone)]
@@ -232,34 +233,51 @@ fn handle_command(
     }
 }
 
-pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> (Vec<u8>, bool) {
-    let (input, _) = SerDe::deserialize(request_buffer);
-    match input {
-        Resp::Array(vec) => {
-            let mut arguments = VecDeque::from(vec);
-            let command = arguments.pop_front();
-            if command.is_none() {
-                return make_error("no command provided");
+pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u8>, bool)> {
+    let n = request_buffer.len();
+    let mut current_index = 0;
+    let mut results = vec![];
+    while current_index < n {
+        let (input, n) = SerDe::deserialize(&request_buffer[current_index..]);
+        current_index += n;
+        println!("handling input {:?}", input);
+        let result = match input {
+            Resp::Array(vec) => {
+                let mut arguments = VecDeque::from(vec);
+                let command = arguments.pop_front();
+                if command.is_none() {
+                    make_error("no command provided");
+                }
+                let command = command.unwrap();
+                if let Resp::Binary(command) = &command {
+                    handle_command(command, arguments, sender.clone())
+                } else {
+                    (vec![], false)
+                }
             }
-            let command = command.unwrap();
-            if let Resp::Binary(command) = &command {
-                handle_command(command, arguments, sender)
-            } else {
+            Resp::Binary(_) => todo!(),
+            Resp::Error(_) => todo!(),
+            Resp::Integer(_) => todo!(),
+            Resp::String(_) => todo!(),
+            Resp::Null => todo!(),
+            Resp::File(data) => {
+                // let (tx, rx) = mpsc::sync_channel(1);
+                // let result = handle_input(&_data, tx);
+                // for res in result {
+                //     results.push(res);
+                // }
+                // let _ = rx.try_recv();
+                let rdb_file = rdb::Rdb::from(data.as_ref());
+                println!("proccessed rdb file data: {:?}", rdb_file.store);
+                let mut store = STORE.write().unwrap();
+                for (k, v) in rdb_file.store {
+                    store.insert(k, v);
+                }
                 (vec![], false)
             }
-        }
-        Resp::Binary(_) => todo!(),
-        Resp::Error(_) => todo!(),
-        Resp::Integer(_) => todo!(),
-        Resp::String(_) => todo!(),
-        Resp::Null => todo!(),
-        Resp::File(_data) => {
-            // println!("processing rdb file data: {:?}", _data);
-            // let (tx, rx) = mpsc::sync_channel(1);
-            // let result = handle_input(&_data, tx);
-            // let _ = rx.try_recv();
-            // result
-            (vec![], false)
-        }
+            Resp::Ignore(_) => (vec![], false),
+        };
+        results.push(result);
     }
+    results
 }
