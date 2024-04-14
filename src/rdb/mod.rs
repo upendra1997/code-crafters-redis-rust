@@ -8,6 +8,7 @@ pub struct Rdb {
 }
 
 const MAGIC: [u8; 9] = [0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x30, 0x33];
+const EMPTY_RDB: &[u8; 88] = include_bytes!("../resources/empty.rdb");
 
 // 00000000: 5245 4449 5330 3031 31fa 0972 6564 6973  REDIS0011..redis
 // 00000010: 2d76 6572 0537 2e32 2e34 fa0a 7265 6469  -ver.7.2.4..redi
@@ -26,6 +27,21 @@ enum LengthEncodedValue {
     I32(i32),
     USIZE(usize),
     ERROR,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+enum StringEncodedValue {
+    USIZE(usize),
+    String(String),
+}
+
+impl From<StringEncodedValue> for Vec<u8> {
+    fn from(value: StringEncodedValue) -> Self {
+        match value {
+            StringEncodedValue::USIZE(x) => x.to_be_bytes().to_vec(),
+            StringEncodedValue::String(x) => x.into_bytes(),
+        }
+    }
 }
 
 impl From<LengthEncodedValue> for usize {
@@ -55,12 +71,17 @@ impl From<u8> for ValueEncoded {
     }
 }
 
-fn string_encoding(data: &[u8]) -> (&[u8], usize) {
+fn string_encoding(data: &[u8]) -> (StringEncodedValue, usize) {
     let (length, size) = length_encoding(data);
-    let length = usize::from(length);
-    let (key, data) = data.split_at(size).1.split_at(length);
-    (key, size + length)
-    // (String::from_utf8(key.to_vec()).unwrap(), size + length)
+    match length {
+        LengthEncodedValue::USIZE(length) => (
+            StringEncodedValue::String(
+                String::from_utf8(data.split_at(size).1.split_at(length).0.to_vec()).unwrap(),
+            ),
+            size + length,
+        ),
+        x => (StringEncodedValue::USIZE(usize::from(x)), size),
+    }
 }
 
 fn length_encoding(data: &[u8]) -> (LengthEncodedValue, usize) {
@@ -116,7 +137,7 @@ fn length_encoding(data: &[u8]) -> (LengthEncodedValue, usize) {
         (LengthEncodedValue::ERROR, 0)
     }
 }
-fn parse_auxiliary_fields(data: &[u8]) -> (HashMap<String, String>, usize) {
+fn parse_auxiliary_fields(data: &[u8]) -> (HashMap<StringEncodedValue, StringEncodedValue>, usize) {
     let mut current_pos = 0;
     let mut data = data;
     let mut result = HashMap::new();
@@ -124,22 +145,22 @@ fn parse_auxiliary_fields(data: &[u8]) -> (HashMap<String, String>, usize) {
         data = &data[1..];
         current_pos += 1;
         let (key, size) = string_encoding(data);
+        // println!("auxiliary key: {:?}", key);
         data = &data[size..];
         current_pos += size;
         let (value, size) = string_encoding(data);
+        // println!("auxiliary value: {:?}", value);
         data = &data[size..];
         current_pos += size;
-        result.insert(
-            String::from_utf8(key.into()).unwrap(),
-            String::from_utf8(value.into()).unwrap(),
-        );
+        result.insert(key, value);
     }
-    println!("{:?}", result);
+    // println!("{:?}", result);
     (result, current_pos)
 }
 
 impl From<&[u8]> for Rdb {
     fn from(value: &[u8]) -> Self {
+        let mut store = HashMap::new();
         // println!("{:#0x?}", value);
         let (magic_headers, mut data) = value.split_at(MAGIC.len());
         // println!("{:#0x?}", magic_headers);
@@ -152,9 +173,14 @@ impl From<&[u8]> for Rdb {
         // println!("{:#0x?}", auxiliary_fields);
         let (_, _) = parse_auxiliary_fields(auxiliary_fields);
         let (database_selecter, mut data) = data.split_first().unwrap();
+        println!("database selecter: {:#0x?}", database_selecter);
         let (database_selected, mut data) = data.split_first().unwrap();
         println!("database selected: {:#0x?}", database_selected);
         let (resize_db, mut data) = data.split_first().unwrap();
+        if *resize_db != 0xfb {
+            return Rdb { store };
+        }
+        println!("resize db: {:#0x?}", resize_db);
         // println!("{:08b}", data[1]);
         // println!("{:08b}", data[2]);
         // println!("{:08b}", data[3]);
@@ -182,7 +208,6 @@ impl From<&[u8]> for Rdb {
         // println!("{:#0x?}", expiry_time_in_milliseconds);
         // scan keys
 
-        let mut store = HashMap::new();
         while data.len() > 0 {
             let (value_type, mut temp_data) = data.split_first().unwrap();
             match ValueEncoded::from(*value_type) {
@@ -192,11 +217,11 @@ impl From<&[u8]> for Rdb {
                     let (_, temp_data1) = temp_data.split_at(size);
                     temp_data = temp_data1;
                     let (value, size) = string_encoding(temp_data);
-                    store.insert(
-                        Resp::Binary(Cow::Borrowed(key)).into(),
-                        Resp::Binary(Cow::Borrowed(value)).into(),
-                    );
                     println!("got value from rdb: {:?}", value);
+                    store.insert(
+                        Resp::Binary(Cow::Borrowed(&Into::<Vec<u8>>::into(key))).into(),
+                        Resp::Binary(Cow::Borrowed(&Into::<Vec<u8>>::into(value))).into(),
+                    );
 
                     let (_, temp_data1) = temp_data1.split_at(size);
                     temp_data = temp_data1;
@@ -259,6 +284,14 @@ impl From<&[u8]> for Rdb {
 #[cfg(test)]
 mod tests {
     use crate::rdb::Rdb;
+
+    #[test]
+    fn it_works_with_empty_file() {
+        let rdb_data = include_bytes!("../resources/empty.rdb");
+        let result = Rdb::from(rdb_data.as_slice());
+        assert_eq!(2, 3);
+        assert_eq!(result, result);
+    }
 
     #[test]
     fn it_works() {
