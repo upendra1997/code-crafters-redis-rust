@@ -116,20 +116,23 @@ fn length_encoding(data: &[u8]) -> (LengthEncodedValue, usize) {
         (LengthEncodedValue::ERROR, 0)
     }
 }
-fn parse_auxiliary_fields(data: &[u8]) -> (HashMap<LengthEncodedValue, LengthEncodedValue>, usize) {
+fn parse_auxiliary_fields(data: &[u8]) -> (HashMap<String, String>, usize) {
     let mut current_pos = 0;
     let mut data = data;
     let mut result = HashMap::new();
     while data.len() > 0 && data[0] == 0xfa {
         data = &data[1..];
         current_pos += 1;
-        let (key, size) = length_encoding(data);
+        let (key, size) = string_encoding(data);
         data = &data[size..];
         current_pos += size;
-        let (value, size) = length_encoding(data);
+        let (value, size) = string_encoding(data);
         data = &data[size..];
         current_pos += size;
-        result.insert(key, value);
+        result.insert(
+            String::from_utf8(key.into()).unwrap(),
+            String::from_utf8(value.into()).unwrap(),
+        );
     }
     println!("{:?}", result);
     (result, current_pos)
