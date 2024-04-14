@@ -149,20 +149,20 @@ impl From<&[u8]> for Rdb {
         // println!("{:#0x?}", auxiliary_fields);
         let (_, _) = parse_auxiliary_fields(auxiliary_fields);
         let (database_selecter, mut data) = data.split_first().unwrap();
-        println!("{:#0x?}", database_selecter);
         let (database_selected, mut data) = data.split_first().unwrap();
-        println!("{:#0x?}", database_selected);
+        println!("database selected: {:#0x?}", database_selected);
         let (resize_db, mut data) = data.split_first().unwrap();
-        println!("{:#0x?}", resize_db);
-        println!("{:08b}", data[0]);
         // println!("{:08b}", data[1]);
         // println!("{:08b}", data[2]);
         // println!("{:08b}", data[3]);
         let (size_of_hash_table, size) = length_encoding(data);
-        println!("{:?}", size_of_hash_table);
+        println!("size of hash table: {:?}", size_of_hash_table);
         data = &data[size..];
         let (size_of_expired_hash_table, size) = length_encoding(data);
-        println!("{:?}", size_of_expired_hash_table);
+        println!(
+            "size of expired hash table: {:?}",
+            size_of_expired_hash_table
+        );
         data = &data[size..];
 
         // scan keys
@@ -185,7 +185,7 @@ impl From<&[u8]> for Rdb {
             match ValueEncoded::from(*value_type) {
                 ValueEncoded::String => {
                     let (key, size) = string_encoding(temp_data);
-                    println!("{:?}", key);
+                    println!("got key from rdb: {:?}", key);
                     let (_, temp_data1) = temp_data.split_at(size);
                     temp_data = temp_data1;
                     let (value, size) = string_encoding(temp_data);
@@ -193,7 +193,7 @@ impl From<&[u8]> for Rdb {
                         Resp::Binary(Cow::Borrowed(key)).into(),
                         Resp::Binary(Cow::Borrowed(value)).into(),
                     );
-                    println!("{:?}", value);
+                    println!("got value from rdb: {:?}", value);
 
                     let (_, temp_data1) = temp_data1.split_at(size);
                     temp_data = temp_data1;
@@ -203,9 +203,9 @@ impl From<&[u8]> for Rdb {
             data = temp_data;
         }
         if data[0] != 0xff {
+            println!("{:#0x?}", data);
             panic!("unread data in rdb");
         }
-        println!("{:#0x?}", data);
         // let (key_value_pair_seconds, data) = data.split_at(key_value_pair_millis_start);
         // println!("{:#0x?}", key_value_pair_seconds);
         // let key_value_pair_seconds_start = data.into_iter().position(|&x| x == 0xfd).unwrap();
