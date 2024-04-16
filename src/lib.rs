@@ -259,14 +259,15 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                 }
             }
             Resp::Binary(command) => {
-                // unreachable!("should never reach here");
                 println!("ERROR: should not have recived a binary command skipping the command");
-                // handle_command(command, VecDeque::from(vec![]), sender.clone())
                 (vec![], false)
             }
             Resp::Error(_) => todo!(),
             Resp::Integer(_) => todo!(),
-            Resp::String(_) => todo!(),
+            Resp::String(_) => {
+                println!("ERROR: should not have recived a string command skipping the command");
+                (vec![], false)
+            }
             Resp::Null => todo!(),
             Resp::File(data) => {
                 // let (tx, rx) = mpsc::sync_channel(1);
