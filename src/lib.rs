@@ -245,7 +245,7 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
     while current_index < n {
         let (input, n) = SerDe::deserialize(&request_buffer[current_index..]);
         println!(
-            "handling input {}",
+            "handling input <<{}>>",
             String::from_utf8_lossy(&request_buffer[current_index..(current_index + n)])
         );
         current_index += n;
