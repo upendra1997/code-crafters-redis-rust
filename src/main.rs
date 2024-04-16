@@ -179,10 +179,6 @@ async fn handle_replication() {
     let mut n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     println!("listening to master for commands");
     loop {
-        if n == 0 {
-            continue;
-        }
-        n = stream.read(&mut request_buffer).await.unwrap();
         let (tx, rx) = mpsc::sync_channel(1);
         // match std::str::from_utf8(&request_buffer[..n]) {
         //     Ok(value) => {
@@ -209,5 +205,11 @@ async fn handle_replication() {
             }
         }
         let _ = rx.try_recv();
+        loop {
+            n = stream.read(&mut request_buffer).await.unwrap();
+            if n != 0 {
+                break;
+            }
+        }
     }
 }
