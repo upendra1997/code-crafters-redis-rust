@@ -113,14 +113,18 @@ fn handle_command(
             let _repl_id = arguments.pop_front();
             let _offest = arguments.pop_front();
             sender.send(()).unwrap();
-            [
+            let mut res = [
                 SerDe::serialize(Resp::String(
                     format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
                 )),
                 // SerDe::serialize(Resp::File(Cow::Borrowed(EMPTY_RDB))),
                 SerDe::serialize(Resp::Binary(Cow::Borrowed(EMPTY_RDB))),
             ]
-            .concat()
+            .concat();
+            // remove \r\n from the binary data.
+            res.pop().unwrap();
+            res.pop().unwrap();
+            res
         }
         "INFO" => {
             let commands = match NODE.read().unwrap().master {
