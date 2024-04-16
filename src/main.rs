@@ -126,16 +126,21 @@ async fn handle_connection(
     }
 }
 
-async fn send_command_to_master(stream: &mut TcpStream, command: &[u8]) {
-    let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+async fn send_command_to_master(
+    stream: &mut TcpStream,
+    command: &[u8],
+    request_buffer: &mut [u8],
+) -> usize {
+    // let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     let (mut reader, mut writer) = stream.split();
     writer.write_all(command).await.unwrap();
     writer.flush().await.unwrap();
-    let n = reader.read(&mut request_buffer).await.unwrap();
+    let n = reader.read(request_buffer).await.unwrap();
     println!(
         "reply from master: {}",
         String::from_utf8_lossy(&request_buffer[..n])
     );
+    n
     // match std::str::from_utf8(&request_buffer[..n]) {
     //     Ok(value) => {
     //         println!("reply from master: {}", value);
@@ -167,17 +172,17 @@ async fn handle_replication() {
         Resp::Binary(format!("{}", master.replicatio_id).as_bytes().into()),
         Resp::Binary(format!("{}", master.offset).as_bytes().into()),
     ]));
-    send_command_to_master(&mut stream, &ping).await;
-    send_command_to_master(&mut stream, &replconf_listen_port).await;
-    send_command_to_master(&mut stream, &replconf_cap).await;
-    send_command_to_master(&mut stream, &psync_init).await;
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+    send_command_to_master(&mut stream, &ping, &mut request_buffer).await;
+    send_command_to_master(&mut stream, &replconf_listen_port, &mut request_buffer).await;
+    send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
+    let mut n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     println!("listening to master for commands");
     loop {
-        let n = stream.read(&mut request_buffer).await.unwrap();
         if n == 0 {
             continue;
         }
+        n = stream.read(&mut request_buffer).await.unwrap();
         let (tx, rx) = mpsc::sync_channel(1);
         // match std::str::from_utf8(&request_buffer[..n]) {
         //     Ok(value) => {
