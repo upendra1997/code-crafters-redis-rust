@@ -88,8 +88,8 @@ fn handle_command(
                 send_to_master = true;
                 SerDe::serialize(Resp::Array(
                     [
-                        "replconf".as_bytes().into(),
-                        "ack".as_bytes().into(),
+                        "REPLCONF".as_bytes().into(),
+                        "ACK".as_bytes().into(),
                         "0".as_bytes().into(),
                     ]
                     .into(),
