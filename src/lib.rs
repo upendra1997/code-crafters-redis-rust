@@ -239,8 +239,11 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
     let mut results = vec![];
     while current_index < n {
         let (input, n) = SerDe::deserialize(&request_buffer[current_index..]);
+        println!(
+            "handling input {}",
+            String::from_utf8_lossy(&request_buffer[current_index..(current_index + n)])
+        );
         current_index += n;
-        println!("handling input {:?}", input);
         let result = match input {
             Resp::Array(vec) => {
                 let mut arguments = VecDeque::from(vec);

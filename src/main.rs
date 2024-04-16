@@ -42,10 +42,10 @@ async fn main() {
                 // command_buffer.push(data);
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                     // for data in &command_buffer[*offset..] {
-                        println!("sendig {} data to replica {}", data.len(), i);
-                        if let Err(_) = stream.write_all(&data) {
-                            useless_streams.push(i);
-                            // break;
+                    println!("sendig {} data to replica {}", data.len(), i);
+                    if let Err(_) = stream.write_all(&data) {
+                        useless_streams.push(i);
+                        // break;
                         // }
                         *offset += 1;
                     }
@@ -175,14 +175,14 @@ async fn handle_replication() {
             continue;
         }
         let (tx, rx) = mpsc::sync_channel(1);
-        match std::str::from_utf8(&request_buffer[..n]) {
-            Ok(value) => {
-                println!("commands from master: {}", value);
-            }
-            Err(_) => {
-                println!("commands from master: {:?}", &request_buffer[..n]);
-            }
-        }
+        // match std::str::from_utf8(&request_buffer[..n]) {
+        //     Ok(value) => {
+        //         println!("commands from master: {}", value);
+        //     }
+        //     Err(_) => {
+        //         println!("commands from master: {:?}", &request_buffer[..n]);
+        //     }
+        // }
         for (response, send_to_master) in handle_input(&request_buffer[..n], tx) {
             if send_to_master {
                 match std::str::from_utf8(&response) {
