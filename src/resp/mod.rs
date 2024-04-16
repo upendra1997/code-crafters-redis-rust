@@ -111,21 +111,12 @@ fn parse_integer(request_buffer: &[u8]) -> (Resp, usize) {
 }
 
 fn parse_bulk_string(request_buffer: &[u8]) -> (Resp, usize) {
-    let pos = request_buffer
-        .windows(2)
-        .position(|arr| arr[0] == b'\r' && arr[1] == b'\n');
-    let number = pos
-        .and_then(|pos| std::str::from_utf8(&request_buffer[..pos]).ok())
-        .and_then(|res| res.parse::<isize>().ok());
-    match (number, pos) {
-        (Some(-1), Some(pos)) => (Resp::Null, pos + 2),
-        (Some(n), Some(p)) => (
-            Resp::Binary(Cow::Borrowed(
-                &request_buffer[(p + 2)..(p + 2 + n as usize)],
-            )),
-            p + 4 + n as usize,
-        ),
-        _ => make_not_sure(request_buffer, line!()),
+    let (resp, length) = parse_rdb_file(request_buffer);
+    let rest = &request_buffer[length..];
+    if rest.len() >= 2 && rest[0] == b'\r' && rest[1] == b'\n' {
+        (resp, length + 2)
+    } else {
+        (resp, length)
     }
 }
 
@@ -193,7 +184,7 @@ impl<'a> SerDe for Resp<'a> {
             b'-' => parse_error(&input[1..]),
             b':' => parse_integer(&input[1..]),
             b'$' => {
-                parse_rdb_file(&input[1..])
+                parse_bulk_string(&input[1..])
                 // if input.ends_with(b"\r\n") {
                 //     parse_bulk_string(&input[1..(input.len() - 2)])
                 // } else {
