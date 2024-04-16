@@ -255,7 +255,12 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                     (vec![], false)
                 }
             }
-            Resp::Binary(_) => todo!(),
+            Resp::Binary(command) => {
+                // unreachable!("should never reach here");
+                println!("ERROR: should not have recived a binary command skipping the command");
+                // handle_command(command, VecDeque::from(vec![]), sender.clone())
+                (vec![], false)
+            }
             Resp::Error(_) => todo!(),
             Resp::Integer(_) => todo!(),
             Resp::String(_) => todo!(),
