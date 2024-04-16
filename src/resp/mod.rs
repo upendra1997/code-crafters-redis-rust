@@ -193,11 +193,12 @@ impl<'a> SerDe for Resp<'a> {
             b'-' => parse_error(&input[1..]),
             b':' => parse_integer(&input[1..]),
             b'$' => {
-                if input.ends_with(b"\r\n") {
-                    parse_bulk_string(&input[1..(input.len() - 2)])
-                } else {
-                    parse_rdb_file(&input[1..])
-                }
+                parse_rdb_file(&input[1..])
+                // if input.ends_with(b"\r\n") {
+                //     parse_bulk_string(&input[1..(input.len() - 2)])
+                // } else {
+                //     parse_rdb_file(&input[1..])
+                // }
             }
             b'*' => parse_array(&input[1..]),
             unknown => (Resp::Ignore(unknown), 0),
