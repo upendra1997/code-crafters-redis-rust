@@ -180,14 +180,8 @@ async fn handle_replication() {
     println!("listening to master for commands");
     loop {
         let (tx, rx) = mpsc::sync_channel(1);
-        // match std::str::from_utf8(&request_buffer[..n]) {
-        //     Ok(value) => {
-        //         println!("commands from master: {}", value);
-        //     }
-        //     Err(_) => {
-        //         println!("commands from master: {:?}", &request_buffer[..n]);
-        //     }
-        // }
+        // TODO: create a struct of all the senders, like send to masetr, send to replica, count
+        // toward offset and so on.
         for (response, send_to_master) in handle_input(&request_buffer[..n], tx) {
             if send_to_master {
                 match std::str::from_utf8(&response) {
