@@ -211,5 +211,9 @@ async fn handle_replication() {
                 break;
             }
         }
+        println!(
+            "input from master: {}",
+            String::from_utf8_lossy(&request_buffer[..n])
+        );
     }
 }
