@@ -19,7 +19,7 @@ pub enum Resp<'a> {
     Error(Cow<'a, str>),
     Array(Vec<Resp<'a>>),
     Integer(i64),
-    File(Cow<'a, [u8]>),
+    // File(Cow<'a, [u8]>),
     Null,
     Ignore(u8),
 }
@@ -145,7 +145,7 @@ fn parse_rdb_file(request_buffer: &[u8]) -> (Resp, usize) {
     match (number, pos) {
         (Some(-1), Some(pos)) => (Resp::Null, pos + 2),
         (Some(n), Some(p)) => (
-            Resp::File(Cow::Borrowed(
+            Resp::Binary(Cow::Borrowed(
                 &request_buffer[(p + 2)..(p + 2 + n as usize)],
             )),
             p + 2 + n as usize,
@@ -217,7 +217,7 @@ impl<'a> SerDe for Resp<'a> {
                 "\r\n".as_bytes(),
             ]
             .concat(),
-            Resp::File(blob) => [format!("${}\r\n", blob.len()).as_bytes(), blob.as_ref()].concat(),
+            // Resp::File(blob) => [format!("${}\r\n", blob.len()).as_bytes(), blob.as_ref()].concat(),
             Resp::Error(err) => format!("-{}\r\n", err).as_bytes().into(),
             Resp::Array(array) => [
                 format!("*{}\r\n", array.len()).as_bytes(),

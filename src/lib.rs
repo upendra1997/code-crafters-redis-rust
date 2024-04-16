@@ -117,7 +117,8 @@ fn handle_command(
                 SerDe::serialize(Resp::String(
                     format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
                 )),
-                SerDe::serialize(Resp::File(Cow::Borrowed(EMPTY_RDB))),
+                // SerDe::serialize(Resp::File(Cow::Borrowed(EMPTY_RDB))),
+                SerDe::serialize(Resp::Binary(Cow::Borrowed(EMPTY_RDB))),
             ]
             .concat()
         }
@@ -258,9 +259,16 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                     (vec![], false)
                 }
             }
-            Resp::Binary(command) => {
-                println!("ERROR: should not have recived a binary command skipping the command");
+            Resp::Binary(data) => {
+                let rdb_file = rdb::Rdb::from(data.as_ref());
+                println!("proccessed rdb file data: {:?}", rdb_file.store);
+                let mut store = STORE.write().unwrap();
+                for (k, v) in rdb_file.store {
+                    store.insert(k, v);
+                }
                 (vec![], false)
+                // println!("ERROR: should not have recived a binary command skipping the command");
+                // (vec![], false)
             }
             Resp::Error(_) => todo!(),
             Resp::Integer(_) => todo!(),
@@ -269,21 +277,21 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                 (vec![], false)
             }
             Resp::Null => todo!(),
-            Resp::File(data) => {
-                // let (tx, rx) = mpsc::sync_channel(1);
-                // let result = handle_input(&_data, tx);
-                // for res in result {
-                //     results.push(res);
-                // }
-                // let _ = rx.try_recv();
-                let rdb_file = rdb::Rdb::from(data.as_ref());
-                println!("proccessed rdb file data: {:?}", rdb_file.store);
-                let mut store = STORE.write().unwrap();
-                for (k, v) in rdb_file.store {
-                    store.insert(k, v);
-                }
-                (vec![], false)
-            }
+            // Resp::File(data) => {
+            //     // let (tx, rx) = mpsc::sync_channel(1);
+            //     // let result = handle_input(&_data, tx);
+            //     // for res in result {
+            //     //     results.push(res);
+            //     // }
+            //     // let _ = rx.try_recv();
+            //     let rdb_file = rdb::Rdb::from(data.as_ref());
+            //     println!("proccessed rdb file data: {:?}", rdb_file.store);
+            //     let mut store = STORE.write().unwrap();
+            //     for (k, v) in rdb_file.store {
+            //         store.insert(k, v);
+            //     }
+            //     (vec![], false)
+            // }
             Resp::Ignore(_) => (vec![], false),
         };
         results.push(result);
