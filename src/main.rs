@@ -132,14 +132,18 @@ async fn send_command_to_master(stream: &mut TcpStream, command: &[u8]) {
     writer.write_all(command).await.unwrap();
     writer.flush().await.unwrap();
     let n = reader.read(&mut request_buffer).await.unwrap();
-    match std::str::from_utf8(&request_buffer[..n]) {
-        Ok(value) => {
-            println!("reply from master: {}", value);
-        }
-        Err(_) => {
-            println!("reply from master: {:?}", &request_buffer[..n]);
-        }
-    }
+    println!(
+        "reply from master: {}",
+        String::from_utf8_lossy(&request_buffer[..n])
+    );
+    // match std::str::from_utf8(&request_buffer[..n]) {
+    //     Ok(value) => {
+    //         println!("reply from master: {}", value);
+    //     }
+    //     Err(_) => {
+    //         println!("reply from master: {:?}", &request_buffer[..n]);
+    //     }
+    // }
 }
 
 async fn handle_replication() {
