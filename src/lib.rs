@@ -58,7 +58,7 @@ impl SignalReceiver {
     pub fn try_recv(&self) -> Signal {
         Signal {
             new_node: self.new_node_reciver.try_recv().is_ok(),
-            send_to_master: self.send_to_replica_recever.try_recv().is_ok(),
+            send_to_master: self.send_to_master_recever.try_recv().is_ok(),
             send_to_replica: self.send_to_replica_recever.try_recv().is_ok(),
             count_toward_offset: self.count_toward_offset_recever.try_recv().is_ok(),
         }
