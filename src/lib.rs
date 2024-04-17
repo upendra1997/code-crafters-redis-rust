@@ -329,7 +329,11 @@ pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> (Vec<u8>, u
         Resp::Error(_) => todo!(),
         Resp::Integer(_) => todo!(),
         Resp::String(_) => {
-            todo!();
+            println!(
+                "ignoring string command: {}",
+                String::from_utf8_lossy(&request_buffer[..n])
+            );
+            vec![]
         }
         Resp::Null => todo!(),
         Resp::Ignore(i) => vec![i],

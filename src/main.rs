@@ -176,7 +176,7 @@ async fn handle_replication() {
     send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
     let n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     println!("listening to master for commands");
-    let mut request = &request_buffer[n..];
+    let mut request = &request_buffer[..n];
     loop {
         loop {
             let (tx, rx) = SignalSender::new();
@@ -202,8 +202,8 @@ async fn handle_replication() {
                 if let Err(e) = stream.write_all(&response).await {
                     eprintln!("Error writing {:?}", e);
                 }
-                stream.flush().await.unwrap();
             }
+            stream.flush().await.unwrap();
             request = &request[n..];
         }
 
