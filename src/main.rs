@@ -187,7 +187,7 @@ async fn handle_replication() {
     loop {
         // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
         // toward offset and so on.
-        let mut request = &request_buffer[..n];
+        let mut request = &request_buffer[n..];
         loop {
             let (tx, rx) = SignalSender::new();
             if request.len() == 0 {
