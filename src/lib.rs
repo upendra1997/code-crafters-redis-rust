@@ -220,6 +220,7 @@ fn handle_command(
         }
         "SET" => {
             signal.send_to_replica.send(()).unwrap();
+            signal.count_toward_offset.send(()).unwrap();
             let first = arguments.pop_front();
             if first.is_none() {
                 return make_error("SET must be provided with a <key>");
