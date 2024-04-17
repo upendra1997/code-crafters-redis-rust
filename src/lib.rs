@@ -1,6 +1,7 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::thread::sleep;
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -218,7 +219,17 @@ fn handle_command(
                 SerDe::serialize(first)
             }
         }
-        "WAIT" => SerDe::serialize(Resp::Integer(NODE.read().unwrap().replicas.len() as i64)),
+        "WAIT" => {
+            let _first = arguments.pop_front();
+            if let Resp::Binary(millisecond) = arguments.pop_front().unwrap() {
+                let millis = str::from_utf8(millisecond.as_ref())
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap();
+                sleep(Duration::from_millis(millis));
+            }
+            SerDe::serialize(Resp::Integer(NODE.read().unwrap().replicas.len() as i64))
+        }
         "SET" => {
             signal.send_to_replica.send(()).unwrap();
             signal.count_toward_offset.send(()).unwrap();
