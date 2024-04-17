@@ -31,7 +31,6 @@ pub struct State {
 
 // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
 // toward offset and so on.
-#[derive(Clone)]
 pub struct SignalSender {
     pub new_node: SyncSender<()>,
     pub send_to_master: SyncSender<()>,
@@ -296,52 +295,44 @@ fn handle_command(
     result
 }
 
-pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> Vec<Vec<u8>> {
-    let n = request_buffer.len();
-    let mut current_index = 0;
-    let mut results = vec![];
-    while current_index < n {
-        let (input, n) = SerDe::deserialize(&request_buffer[current_index..]);
-        println!(
-            "handling input <<{}>>",
-            String::from_utf8_lossy(&request_buffer[current_index..(current_index + n)])
-        );
-        current_index += n;
-        let result = match input {
-            Resp::Array(vec) => {
-                let mut arguments = VecDeque::from(vec);
-                let command = arguments.pop_front();
-                if command.is_none() {
-                    make_error("no command provided");
-                }
-                let command = command.unwrap();
-                if let Resp::Binary(command) = &command {
-                    handle_command(command, arguments, signals.clone())
-                } else {
-                    vec![]
-                }
+pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> (Vec<u8>, usize) {
+    let (input, n) = SerDe::deserialize(request_buffer);
+    println!(
+        "handling input <<{}>>",
+        String::from_utf8_lossy(&request_buffer[..n])
+    );
+    let result = match input {
+        Resp::Array(vec) => {
+            let mut arguments = VecDeque::from(vec);
+            let command = arguments.pop_front();
+            if command.is_none() {
+                make_error("no command provided");
             }
-            Resp::Binary(data) => {
-                let rdb_file = rdb::Rdb::from(data.as_ref());
-                println!("proccessed rdb file data: {:?}", rdb_file.store);
-                let mut store = STORE.write().unwrap();
-                for (k, v) in rdb_file.store {
-                    store.insert(k, v);
-                }
-                vec![]
-                // println!("ERROR: should not have recived a binary command skipping the command");
-                // (vec![], false)
-            }
-            Resp::Error(_) => todo!(),
-            Resp::Integer(_) => todo!(),
-            Resp::String(_) => {
-                println!("ERROR: should not have recived a string command skipping the command");
+            let command = command.unwrap();
+            if let Resp::Binary(command) = &command {
+                handle_command(command, arguments, signals)
+            } else {
                 vec![]
             }
-            Resp::Null => todo!(),
-            Resp::Ignore(_) => vec![],
-        };
-        results.push(result);
-    }
-    results
+        }
+        Resp::Binary(data) => {
+            let rdb_file = rdb::Rdb::from(data.as_ref());
+            println!("proccessed rdb file data: {:?}", rdb_file.store);
+            let mut store = STORE.write().unwrap();
+            for (k, v) in rdb_file.store {
+                store.insert(k, v);
+            }
+            vec![]
+            // println!("ERROR: should not have recived a binary command skipping the command");
+            // (vec![], false)
+        }
+        Resp::Error(_) => todo!(),
+        Resp::Integer(_) => todo!(),
+        Resp::String(_) => {
+            todo!();
+        }
+        Resp::Null => todo!(),
+        Resp::Ignore(_) => vec![],
+    };
+    (result, n)
 }
