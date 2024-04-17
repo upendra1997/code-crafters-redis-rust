@@ -147,14 +147,6 @@ async fn send_command_to_master(
         String::from_utf8_lossy(&request_buffer[..n])
     );
     n
-    // match std::str::from_utf8(&request_buffer[..n]) {
-    //     Ok(value) => {
-    //         println!("reply from master: {}", value);
-    //     }
-    //     Err(_) => {
-    //         println!("reply from master: {:?}", &request_buffer[..n]);
-    //     }
-    // }
 }
 
 async fn handle_replication() {
@@ -186,8 +178,6 @@ async fn handle_replication() {
     println!("listening to master for commands");
     let mut request = &request_buffer[n..];
     loop {
-        // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
-        // toward offset and so on.
         loop {
             let (tx, rx) = SignalSender::new();
             if request.len() == 0 {
