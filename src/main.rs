@@ -182,19 +182,18 @@ async fn handle_replication() {
     send_command_to_master(&mut stream, &ping, &mut request_buffer).await;
     send_command_to_master(&mut stream, &replconf_listen_port, &mut request_buffer).await;
     send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
-    let mut n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
+    let n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     println!("listening to master for commands");
+    let mut request = &request_buffer[n..];
     loop {
         // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
         // toward offset and so on.
-        let mut request = &request_buffer[n..];
         loop {
             let (tx, rx) = SignalSender::new();
             if request.len() == 0 {
                 break;
             }
             let (response, n) = handle_input(request, tx);
-            request = &request[n..];
             let signals = rx.try_recv();
             if signals.count_toward_offset {
                 let node = NODE.write().unwrap();
@@ -215,11 +214,13 @@ async fn handle_replication() {
                 }
                 stream.flush().await.unwrap();
             }
+            request = &request[n..];
         }
 
         loop {
-            n = stream.read(&mut request_buffer).await.unwrap();
+            let n = stream.read(&mut request_buffer).await.unwrap();
             if n != 0 {
+                request = &request_buffer[..n];
                 break;
             }
         }
