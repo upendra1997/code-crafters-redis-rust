@@ -332,7 +332,7 @@ pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> (Vec<u8>, u
             todo!();
         }
         Resp::Null => todo!(),
-        Resp::Ignore(_) => vec![],
+        Resp::Ignore(i) => vec![i],
     };
     (result, n)
 }
