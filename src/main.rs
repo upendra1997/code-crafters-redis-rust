@@ -1,8 +1,9 @@
 use redis_starter_rust::resp::{Resp, SerDe};
-use redis_starter_rust::{handle_input, NODE};
+use redis_starter_rust::{handle_input, Signal, SignalSender, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
-use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::ops::DerefMut;
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -95,9 +96,11 @@ async fn handle_connection(
                 "REQ: {:?}",
                 std::str::from_utf8(&request_buffer[..n]).unwrap()
             );
-            let (tx, rx) = mpsc::sync_channel(1);
+            let (tx, rx) = SignalSender::new();
+            let mut signals = Signal::default();
             let request = &request_buffer[..n];
-            for (response, send_to_replica) in handle_input(request, tx) {
+            for response in handle_input(request, tx) {
+                signals = rx.try_recv();
                 match std::str::from_utf8(&response) {
                     Ok(value) => {
                         println!("RES: {:?}", value);
@@ -107,7 +110,7 @@ async fn handle_connection(
                     }
                 }
                 //send data to replicas before replying to client
-                if is_master && send_to_replica {
+                if is_master && signals.send_to_replica {
                     sender.send(request.into()).unwrap();
                 }
                 if let Err(e) = stream.write_all(&response).await {
@@ -115,7 +118,7 @@ async fn handle_connection(
                 }
                 stream.flush().await.unwrap();
             }
-            if is_master && rx.try_iter().next().is_some() {
+            if is_master && rx.try_recv().new_node {
                 NODE.write().unwrap().replicas.push(sender);
                 break Some(stream);
             }
@@ -179,11 +182,18 @@ async fn handle_replication() {
     let mut n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     println!("listening to master for commands");
     loop {
-        let (tx, rx) = mpsc::sync_channel(1);
-        // TODO: create a struct of all the senders, like send to masetr, send to replica, count
+        let (tx, rx) = SignalSender::new();
+        // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
         // toward offset and so on.
-        for (response, send_to_master) in handle_input(&request_buffer[..n], tx) {
-            if send_to_master {
+        let mut signals = Signal::default();
+        for response in handle_input(&request_buffer[..n], tx) {
+            signals = rx.try_recv();
+            if signals.count_toward_offset {
+                let node = NODE.write().unwrap();
+                let replica = node.clone().master;
+                replica.unwrap().offset += n as i64;
+            }
+            if signals.send_to_master {
                 match std::str::from_utf8(&response) {
                     Ok(value) => {
                         println!("reply to master: {}", value);
@@ -198,7 +208,6 @@ async fn handle_replication() {
                 stream.flush().await.unwrap();
             }
         }
-        let _ = rx.try_recv();
         loop {
             n = stream.read(&mut request_buffer).await.unwrap();
             if n != 0 {

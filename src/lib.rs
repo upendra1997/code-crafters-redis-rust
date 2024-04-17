@@ -1,6 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -27,6 +27,64 @@ pub struct State {
     pub master: Option<Node>,
     pub port: usize,
     pub replicas: Vec<SyncSender<Vec<u8>>>,
+}
+
+// TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
+// toward offset and so on.
+#[derive(Clone)]
+pub struct SignalSender {
+    pub new_node: SyncSender<()>,
+    pub send_to_master: SyncSender<()>,
+    pub send_to_replica: SyncSender<()>,
+    pub count_toward_offset: SyncSender<()>,
+}
+
+#[derive(Default)]
+pub struct Signal {
+    pub new_node: bool,
+    pub send_to_master: bool,
+    pub send_to_replica: bool,
+    pub count_toward_offset: bool,
+}
+
+pub struct SignalReceiver {
+    pub new_node_reciver: Receiver<()>,
+    pub send_to_master_recever: Receiver<()>,
+    pub send_to_replica_recever: Receiver<()>,
+    pub count_toward_offset_recever: Receiver<()>,
+}
+
+impl SignalReceiver {
+    pub fn try_recv(&self) -> Signal {
+        Signal {
+            new_node: self.new_node_reciver.try_recv().is_ok(),
+            send_to_master: self.send_to_replica_recever.try_recv().is_ok(),
+            send_to_replica: self.send_to_replica_recever.try_recv().is_ok(),
+            count_toward_offset: self.count_toward_offset_recever.try_recv().is_ok(),
+        }
+    }
+}
+
+impl SignalSender {
+    pub fn new() -> (SignalSender, SignalReceiver) {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let (tx1, rx1) = mpsc::sync_channel(1);
+        let (tx2, rx2) = mpsc::sync_channel(1);
+        let (tx3, rx3) = mpsc::sync_channel(1);
+        let sender = SignalSender {
+            new_node: tx,
+            send_to_master: tx1,
+            send_to_replica: tx2,
+            count_toward_offset: tx3,
+        };
+        let receiver = SignalReceiver {
+            new_node_reciver: rx,
+            send_to_master_recever: rx1,
+            send_to_replica_recever: rx2,
+            count_toward_offset_recever: rx3,
+        };
+        (sender, receiver)
+    }
 }
 
 const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
@@ -61,36 +119,41 @@ lazy_static! {
     };
 }
 
-fn make_error(str: &str) -> (Vec<u8>, bool) {
-    (SerDe::serialize(Resp::Error(Cow::Borrowed(str))), false)
+fn make_error(str: &str) -> Vec<u8> {
+    SerDe::serialize(Resp::Error(Cow::Borrowed(str)))
 }
 
 fn handle_command(
     command: impl AsRef<[u8]>,
     mut arguments: VecDeque<Resp>,
-    sender: SyncSender<()>,
-) -> (Vec<u8>, bool) {
-    let is_master = NODE.read().unwrap().master.is_none();
+    signal: SignalSender,
+) -> Vec<u8> {
+    let replica = &NODE.read().unwrap().master;
+    let is_master = replica.is_none();
     let command = command.as_ref();
     let command = str::from_utf8(command);
     if let Err(_e) = command {
         return make_error("command is not valid utf8");
     }
     let command = command.unwrap().to_uppercase();
-    let mut send_to_replicas = false;
-    let mut send_to_master = false;
     let result = match command.as_ref() {
-        "PING" => SerDe::serialize(Resp::String("PONG".into())),
+        "PING" => {
+            signal.count_toward_offset.send(()).unwrap();
+            SerDe::serialize(Resp::String("PONG".into()))
+        }
         "REPLCONF" => {
             if is_master {
                 SerDe::serialize(Resp::String("OK".into()))
             } else {
-                send_to_master = true;
+                signal.send_to_master.send(()).unwrap();
+                signal.count_toward_offset.send(()).unwrap();
                 SerDe::serialize(Resp::Array(
                     [
                         "REPLCONF".as_bytes().into(),
                         "ACK".as_bytes().into(),
-                        "0".as_bytes().into(),
+                        format!("{}", replica.as_ref().unwrap().offset)
+                            .as_bytes()
+                            .into(),
                     ]
                     .into(),
                 ))
@@ -112,12 +175,11 @@ fn handle_command(
         "PSYNC" => {
             let _repl_id = arguments.pop_front();
             let _offest = arguments.pop_front();
-            sender.send(()).unwrap();
+            signal.new_node.send(()).unwrap();
             let mut res = [
                 SerDe::serialize(Resp::String(
                     format!("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").into(),
                 )),
-                // SerDe::serialize(Resp::File(Cow::Borrowed(EMPTY_RDB))),
                 SerDe::serialize(Resp::Binary(Cow::Borrowed(EMPTY_RDB))),
             ]
             .concat();
@@ -158,7 +220,7 @@ fn handle_command(
             }
         }
         "SET" => {
-            send_to_replicas = true;
+            signal.send_to_replica.send(()).unwrap();
             let first = arguments.pop_front();
             if first.is_none() {
                 return make_error("SET must be provided with a <key>");
@@ -231,14 +293,10 @@ fn handle_command(
             ))))
         }
     };
-    if is_master {
-        (result, send_to_replicas)
-    } else {
-        (result, send_to_master)
-    }
+    result
 }
 
-pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u8>, bool)> {
+pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> Vec<Vec<u8>> {
     let n = request_buffer.len();
     let mut current_index = 0;
     let mut results = vec![];
@@ -258,9 +316,9 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                 }
                 let command = command.unwrap();
                 if let Resp::Binary(command) = &command {
-                    handle_command(command, arguments, sender.clone())
+                    handle_command(command, arguments, signals.clone())
                 } else {
-                    (vec![], false)
+                    vec![]
                 }
             }
             Resp::Binary(data) => {
@@ -270,7 +328,7 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
                 for (k, v) in rdb_file.store {
                     store.insert(k, v);
                 }
-                (vec![], false)
+                vec![]
                 // println!("ERROR: should not have recived a binary command skipping the command");
                 // (vec![], false)
             }
@@ -278,10 +336,10 @@ pub fn handle_input(request_buffer: &[u8], sender: SyncSender<()>) -> Vec<(Vec<u
             Resp::Integer(_) => todo!(),
             Resp::String(_) => {
                 println!("ERROR: should not have recived a string command skipping the command");
-                (vec![], false)
+                vec![]
             }
             Resp::Null => todo!(),
-            Resp::Ignore(_) => (vec![], false),
+            Resp::Ignore(_) => vec![],
         };
         results.push(result);
     }
