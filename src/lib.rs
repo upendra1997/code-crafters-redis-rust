@@ -1,6 +1,7 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::sleep;
 use std::{
     borrow::Cow,
@@ -93,6 +94,8 @@ lazy_static! {
     pub static ref STORE: RwLock<HashMap<Vec<u8>, Vec<u8>>> = RwLock::new(HashMap::new());
     pub static ref EXPIRY: RwLock<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
         RwLock::new(BinaryHeap::new());
+    pub static ref NEW_NODE_NOTIFIER: Arc<(Mutex<()>, Condvar)> =
+        Arc::new((Mutex::new(()), Condvar::new()));
     pub static ref NODE: RwLock<State> = {
         let mut port = 6379;
         if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
@@ -220,13 +223,25 @@ fn handle_command(
             }
         }
         "WAIT" => {
-            let _first = arguments.pop_front();
-            if let Resp::Binary(millisecond) = arguments.pop_front().unwrap() {
-                let millis = str::from_utf8(millisecond.as_ref())
+            if let Resp::Binary(n) = arguments.pop_front().unwrap() {
+                let n = str::from_utf8(n.as_ref())
                     .unwrap()
-                    .parse::<u64>()
+                    .parse::<usize>()
                     .unwrap();
-                sleep(Duration::from_millis(millis));
+                if let Resp::Binary(millisecond) = arguments.pop_front().unwrap() {
+                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                    let millis = str::from_utf8(millisecond.as_ref())
+                        .unwrap()
+                        .parse::<u64>()
+                        .unwrap();
+
+                    cvar.wait_timeout_while(
+                        mutex.lock().unwrap(),
+                        Duration::from_millis(millis),
+                        |_| NODE.read().unwrap().replicas.len() < n,
+                    )
+                    .unwrap();
+                }
             }
             SerDe::serialize(Resp::Integer(NODE.read().unwrap().replicas.len() as i64))
         }

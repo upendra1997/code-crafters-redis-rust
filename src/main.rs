@@ -1,5 +1,5 @@
 use redis_starter_rust::resp::{Resp, SerDe};
-use redis_starter_rust::{handle_input, SignalSender, NODE};
+use redis_starter_rust::{handle_input, SignalSender, NEW_NODE_NOTIFIER, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -121,6 +121,9 @@ async fn handle_connection(
                 stream.flush().await.unwrap();
                 if is_master && signals.new_node {
                     NODE.write().unwrap().replicas.push(sender);
+                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                    mutex.lock().unwrap();
+                    cvar.notify_all();
                     return Some(stream);
                 }
                 request = &request[n..];
