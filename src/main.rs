@@ -150,7 +150,7 @@ async fn send_command_to_master(
 }
 
 async fn handle_replication() {
-    let master = NODE.read().unwrap().master.clone().unwrap();
+    let mut master = NODE.write().unwrap().master.clone().unwrap();
     let mut stream = TcpStream::connect(format!("{}:{}", master.host, master.port))
         .await
         .unwrap();
@@ -175,6 +175,7 @@ async fn handle_replication() {
     send_command_to_master(&mut stream, &replconf_listen_port, &mut request_buffer).await;
     send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
     let n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
+    master.offset += 1;
     println!("listening to master for commands");
     let mut request = &request_buffer[..n];
     loop {
