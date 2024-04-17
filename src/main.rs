@@ -89,7 +89,7 @@ async fn handle_connection(
         if let Ok(n) = stream.read(&mut request_buffer).await {
             println!("read {} bytes", n);
             if n == 0 {
-                break Some(stream);
+                return Some(stream);
             }
             println!(
                 "REQ: {:?}",
@@ -102,7 +102,6 @@ async fn handle_connection(
                 }
                 let (tx, rx) = SignalSender::new();
                 let (response, n) = handle_input(request, tx);
-                request = &request[n..];
                 let signals = rx.try_recv();
                 match std::str::from_utf8(&response) {
                     Ok(value) => {
@@ -124,6 +123,7 @@ async fn handle_connection(
                     NODE.write().unwrap().replicas.push(sender);
                     return Some(stream);
                 }
+                request = &request[n..];
             }
         } else {
             eprintln!("error reading from tcp stream");
