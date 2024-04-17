@@ -105,7 +105,7 @@ lazy_static! {
                 host: std::env::args().nth(i + 1).unwrap(),
                 port: std::env::args().nth(i + 2).unwrap().parse().unwrap(),
                 replicatio_id: "?".to_owned(),
-                offset: -1,
+                offset: 0,
             }),
             None => None,
         };
