@@ -218,6 +218,7 @@ fn handle_command(
                 SerDe::serialize(first)
             }
         }
+        "WAIT" => SerDe::serialize(Resp::Integer(0)),
         "SET" => {
             signal.send_to_replica.send(()).unwrap();
             signal.count_toward_offset.send(()).unwrap();
