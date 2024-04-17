@@ -118,7 +118,7 @@ async fn handle_connection(
                 }
                 stream.flush().await.unwrap();
             }
-            if is_master && rx.try_recv().new_node {
+            if is_master && signals.new_node {
                 NODE.write().unwrap().replicas.push(sender);
                 break Some(stream);
             }
