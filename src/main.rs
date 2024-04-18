@@ -65,7 +65,7 @@ async fn main() {
                 tokio::spawn(async move {
                     if let Some(stream) = handle_connection(stream, sender).await {
                         if is_master {
-                            println!("sendig commands to replica");
+                            println!("sending commands to replica");
                             let mut streams = streams.write().unwrap();
                             streams.push((stream.into_std().unwrap(), 0));
                         }
@@ -123,9 +123,9 @@ async fn handle_connection(
                     stream.flush().await.unwrap();
                     if is_master && signals.new_node {
                         NODE.write().unwrap().replicas.push(sender);
-                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        mutex.lock().unwrap();
-                        cvar.notify_all();
+                        // let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                        // mutex.lock().unwrap();
+                        // cvar.notify_all();
                         return Some(stream);
                     }
                     request = &request[n..];
