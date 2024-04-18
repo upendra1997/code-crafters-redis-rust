@@ -45,7 +45,7 @@ async fn main() {
                     println!("sendig {} data to replica {}", data.len(), i);
                     if let Err(e) = stream.write_all(&data) {
                         println!("removing replica from the master, because of {}", e);
-                        useless_streams.push(i);
+                        // useless_streams.push(i);
                         // break;
                         // }
                         *offset += 1;
