@@ -2,6 +2,7 @@ use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, NEW_NODE_NOTIFIER, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
+use tokio::sync::RwLock as SendableRwLock;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use tokio::{
@@ -24,7 +25,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<RwLock<Vec<(StdTcpStream, usize)>>> = Arc::new(RwLock::new(vec![]));
+    let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> = Arc::new(SendableRwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
@@ -37,13 +38,13 @@ async fn main() {
         tokio::spawn(async move {
             // let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
-                let mut streams = streamss.write().unwrap();
+                let mut streams = streamss.write().await;
                 let mut useless_streams = vec![];
                 // command_buffer.push(data);
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                     // for data in &command_buffer[*offset..] {
                     println!("sendig {} data to replica {}", data.len(), i);
-                    if let Err(e) = stream.write_all(&data) {
+                    if let Err(e) = stream.write_all(&data).await {
                         println!("removing replica from the master, because of {}", e);
                         // useless_streams.push(i);
                         // break;
@@ -66,8 +67,8 @@ async fn main() {
                     if let Some(stream) = handle_connection(stream, sender).await {
                         if is_master {
                             println!("sending commands to replica");
-                            let mut streams = streams.write().unwrap();
-                            streams.push((stream.into_std().unwrap(), 0));
+                            let mut streams = streams.write().await;
+                            streams.push((stream, 0));
                         }
                     }
                 });
