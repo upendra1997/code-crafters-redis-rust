@@ -43,7 +43,8 @@ async fn main() {
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                     // for data in &command_buffer[*offset..] {
                     println!("sendig {} data to replica {}", data.len(), i);
-                    if let Err(_) = stream.write_all(&data) {
+                    if let Err(e) = stream.write_all(&data) {
+                        println!("removing replica from the master, because of {}", e);
                         useless_streams.push(i);
                         // break;
                         // }
@@ -86,51 +87,54 @@ async fn handle_connection(
     println!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {
-        if let Ok(n) = stream.read(&mut request_buffer).await {
-            println!("read {} bytes", n);
-            if n == 0 {
-                return Some(stream);
-            }
-            println!(
-                "REQ: {:?}",
-                std::str::from_utf8(&request_buffer[..n]).unwrap()
-            );
-            let mut request = &request_buffer[..n];
-            loop {
-                if request.len() == 0 {
-                    break;
-                }
-                let (tx, rx) = SignalSender::new();
-                let (response, n) = handle_input(request, tx);
-                let signals = rx.try_recv();
-                match std::str::from_utf8(&response) {
-                    Ok(value) => {
-                        println!("RES: {:?}", value);
-                    }
-                    Err(_) => {
-                        println!("RES: {:?}", response);
-                    }
-                }
-                //send data to replicas before replying to client
-                if is_master && signals.send_to_replica {
-                    sender.send(request.into()).unwrap();
-                }
-                if let Err(e) = stream.write_all(&response).await {
-                    eprintln!("Error writing {:?}", e);
-                }
-                stream.flush().await.unwrap();
-                if is_master && signals.new_node {
-                    NODE.write().unwrap().replicas.push(sender);
-                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                    mutex.lock().unwrap();
-                    cvar.notify_all();
+        match stream.read(&mut request_buffer).await {
+            Ok(n) => {
+                println!("read {} bytes", n);
+                if n == 0 {
                     return Some(stream);
                 }
-                request = &request[n..];
+                println!(
+                    "REQ: {:?}",
+                    std::str::from_utf8(&request_buffer[..n]).unwrap()
+                );
+                let mut request = &request_buffer[..n];
+                loop {
+                    if request.len() == 0 {
+                        break;
+                    }
+                    let (tx, rx) = SignalSender::new();
+                    let (response, n) = handle_input(request, tx);
+                    let signals = rx.try_recv();
+                    match std::str::from_utf8(&response) {
+                        Ok(value) => {
+                            println!("RES: {:?}", value);
+                        }
+                        Err(_) => {
+                            println!("RES: {:?}", response);
+                        }
+                    }
+                    //send data to replicas before replying to client
+                    if is_master && signals.send_to_replica {
+                        sender.send(request.into()).unwrap();
+                    }
+                    if let Err(e) = stream.write_all(&response).await {
+                        eprintln!("Error writing {:?}", e);
+                    }
+                    stream.flush().await.unwrap();
+                    if is_master && signals.new_node {
+                        NODE.write().unwrap().replicas.push(sender);
+                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                        mutex.lock().unwrap();
+                        cvar.notify_all();
+                        return Some(stream);
+                    }
+                    request = &request[n..];
+                }
             }
-        } else {
-            eprintln!("error reading from tcp stream");
-            break None;
+            Err(e) => {
+                eprintln!("error reading from tcp stream {}", e);
+                break None;
+            }
         }
     }
 }
