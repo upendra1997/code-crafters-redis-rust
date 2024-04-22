@@ -81,9 +81,7 @@ async fn main() {
                             streams.push((stream, 0));
                         }
                     }
-                })
-                .await
-                .unwrap();
+                });
             }
             Err(e) => {
                 eprintln!("error: {:?}", e);
