@@ -45,6 +45,9 @@ async fn main() {
         tokio::spawn(async move {
             let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
+                if data.len() == 0 {
+                    continue;
+                }
                 let mut streams = streamss.write().await;
                 let mut useless_streams = vec![];
                 command_buffer.push(data);
@@ -143,7 +146,7 @@ async fn handle_connection(
             }
             Err(e) => {
                 eprintln!("error reading from tcp stream {}", e);
-                break Some(stream);
+                break None;
             }
         }
     }
