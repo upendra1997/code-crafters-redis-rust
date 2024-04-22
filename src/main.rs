@@ -143,7 +143,7 @@ async fn handle_connection(
             }
             Err(e) => {
                 eprintln!("error reading from tcp stream {}", e);
-                break None;
+                break Some(stream);
             }
         }
     }
