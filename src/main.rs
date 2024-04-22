@@ -2,9 +2,10 @@ use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, NEW_NODE_NOTIFIER, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
-use tokio::sync::RwLock as SendableRwLock;
+use std::ops::DerefMut;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
+use tokio::sync::RwLock as SendableRwLock;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -25,7 +26,8 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> = Arc::new(SendableRwLock::new(vec![]));
+    let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> =
+        Arc::new(SendableRwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
@@ -35,20 +37,25 @@ async fn main() {
         println!("Node is replica");
     }
     if is_master {
+        // TODO:
+        // instead of passing TcpStream, we should only pass data, by creating a master replicatoin
+        // handler which will push the data to the main sender, and there would be pair of sender
+        // and reciver, on each TcpStream, and they will listen using the reciever,
+        // need to ensure that, the broadcast does't reach the original sender.
         tokio::spawn(async move {
-            // let mut command_buffer: Vec<Vec<u8>> = Vec::new();
+            let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
                 let mut streams = streamss.write().await;
                 let mut useless_streams = vec![];
-                // command_buffer.push(data);
+                command_buffer.push(data);
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
-                    // for data in &command_buffer[*offset..] {
-                    println!("sendig {} data to replica {}", data.len(), i);
-                    if let Err(e) = stream.write_all(&data).await {
-                        println!("removing replica from the master, because of {}", e);
-                        // useless_streams.push(i);
-                        // break;
-                        // }
+                    for data in &command_buffer[*offset..] {
+                        if let Err(e) = stream.write_all(&data).await {
+                            println!("removing replica from the master, because of {}", e);
+                            useless_streams.push(i);
+                            break;
+                        }
+                        println!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
                         *offset += 1;
                     }
                 }
@@ -92,17 +99,15 @@ async fn handle_connection(
             Ok(n) => {
                 println!("read {} bytes", n);
                 if n == 0 {
-                    return Some(stream);
+                    break None;
                 }
-                println!(
-                    "REQ: {:?}",
-                    std::str::from_utf8(&request_buffer[..n]).unwrap()
-                );
                 let mut request = &request_buffer[..n];
                 loop {
                     if request.len() == 0 {
                         break;
                     }
+                    let req = std::str::from_utf8(request).unwrap();
+                    println!("REQ: {:?}", req);
                     let (tx, rx) = SignalSender::new();
                     let (response, n) = handle_input(request, tx);
                     let signals = rx.try_recv();
@@ -123,10 +128,14 @@ async fn handle_connection(
                     }
                     stream.flush().await.unwrap();
                     if is_master && signals.new_node {
-                        NODE.write().unwrap().replicas.push(sender);
-                        // let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        // mutex.lock().unwrap();
-                        // cvar.notify_all();
+                        let mut node = NODE.write().unwrap();
+                        let replicas: &mut Vec<SyncSender<Vec<u8>>> = node.replicas.as_mut();
+                        println!("New replica {} is being added by {}", replicas.len(), req);
+                        replicas.push(sender);
+                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                        let mutex = mutex.lock().unwrap();
+                        cvar.notify_all();
+                        drop(mutex);
                         return Some(stream);
                     }
                     request = &request[n..];
