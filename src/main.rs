@@ -175,6 +175,7 @@ async fn handle_connection(
                         eprintln!("Error writing {:?}", e);
                     }
                     my_stream.flush().await.unwrap();
+                    drop(my_stream);
                     request = &request[n..];
                 }
             }
