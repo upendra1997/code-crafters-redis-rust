@@ -130,14 +130,12 @@ async fn main() {
                     }
                 }
                 let new_size = new_map.len();
-                if new_size != old_size {
-                    println!(
-                        "have removend {} values new_size: {}, old_size: {}",
-                        new_size - old_size,
-                        new_size,
-                        old_size
-                    );
-                }
+                println!(
+                    "have removend {} values new_size: {}, old_size: {}",
+                    new_size - old_size,
+                    new_size,
+                    old_size
+                );
                 while let Some(entry) = new_map.first_entry() {
                     let (k, v) = entry.remove_entry();
                     streams.insert(k, v);
