@@ -55,7 +55,9 @@ async fn main() {
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                     for data in &command_buffer[*offset..] {
                         let mut my_stream = stream.lock().await;
-                        if let Err(e) = my_stream.write_all(&data).await {
+                        let result = my_stream.write_all(&data).await;
+                        drop(my_stream);
+                        if let Err(e) = result {
                             println!("removing replica from the master, because of {}", e);
                             //TODO: should have a hashmap
                             useless_streams.push(i);
