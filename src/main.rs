@@ -122,7 +122,6 @@ async fn main() {
                             }
                         }
                     }
-                    is_uselss = false; // TODO: remove this;
                     if !is_uselss {
                         new_map.insert(i, (stream, offset));
                     } else {
