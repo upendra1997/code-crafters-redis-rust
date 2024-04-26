@@ -13,12 +13,13 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use tracing::{debug, info};
 
 const REQUEST_BUFFER_SIZE: usize = 536870912;
 
 #[tokio::main]
 async fn main() {
-    println!("Logs from your program will appear here!");
+    debug!("Logs from your program will appear here!");
     let listener = TcpListener::bind(format!("127.0.0.1:{}", NODE.read().unwrap().port))
         .await
         .unwrap();
@@ -39,9 +40,9 @@ async fn main() {
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
     if is_master {
-        println!("Node is master");
+        debug!("Node is master");
     } else {
-        println!("Node is replica");
+        debug!("Node is replica");
     }
     if is_master {
         // TODO:
