@@ -92,6 +92,10 @@ async fn main() {
                         match res {
                             Ok(n) => {
                                 let response = &request_buffer[..n];
+                                if n == 0 {
+                                    useless_streams.push(i);
+                                    continue;
+                                }
                                 let result = NODE
                                     .write()
                                     .unwrap()
