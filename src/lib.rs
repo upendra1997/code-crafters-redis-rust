@@ -29,6 +29,7 @@ pub struct State {
     pub master: Option<Node>,
     pub port: usize,
     pub replicas: Vec<SyncSender<Vec<u8>>>,
+    pub data_sender: Option<SyncSender<TcpStreamMessage>>,
 }
 
 // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
@@ -90,6 +91,11 @@ impl SignalSender {
 
 const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
 
+pub enum TcpStreamMessage {
+    CountAcks(()),
+    Data(Vec<u8>),
+}
+
 lazy_static! {
     pub static ref STORE: RwLock<HashMap<Vec<u8>, Vec<u8>>> = RwLock::new(HashMap::new());
     pub static ref EXPIRY: RwLock<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
@@ -118,6 +124,7 @@ lazy_static! {
             master: master,
             port: port,
             replicas: vec![],
+            data_sender: None,
         })
     };
 }
@@ -234,7 +241,11 @@ fn handle_command(
                         .unwrap()
                         .parse::<u64>()
                         .unwrap();
-
+                    NODE.read()
+                        .unwrap()
+                        .data_sender
+                        .as_ref()
+                        .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
                     cvar.wait_timeout_while(
                         mutex.lock().unwrap(),
                         Duration::from_millis(millis),

@@ -1,5 +1,5 @@
 use redis_starter_rust::resp::{Resp, SerDe};
-use redis_starter_rust::{handle_input, SignalSender, NEW_NODE_NOTIFIER, NODE};
+use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
@@ -28,7 +28,10 @@ async fn main() {
 
     let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> =
         Arc::new(SendableRwLock::new(vec![]));
-    let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
+    let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
+        mpsc::sync_channel(1024);
+    let mut node = NODE.write().unwrap();
+    node.data_sender = Some(sender.clone());
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
     if is_master {
@@ -45,25 +48,52 @@ async fn main() {
         tokio::spawn(async move {
             let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
-                if data.len() == 0 {
-                    continue;
-                }
-                let mut streams = streamss.write().await;
-                let mut useless_streams = vec![];
-                command_buffer.push(data);
-                for (i, (stream, offset)) in streams.iter_mut().enumerate() {
-                    for data in &command_buffer[*offset..] {
-                        if let Err(e) = stream.write_all(&data).await {
-                            println!("removing replica from the master, because of {}", e);
-                            useless_streams.push(i);
-                            break;
+                match data {
+                    TcpStreamMessage::CountAcks(_) => {
+                        let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
+                            Resp::Binary("REPLCONF".as_bytes().into()),
+                            Resp::Binary("GETACK".as_bytes().into()),
+                            Resp::Binary("*".as_bytes().into()),
+                        ]));
+                        let mut streams = streamss.write().await;
+                        for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                            stream.write_all(&replconf_get_ack).await;
+                            let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                            let n = stream.read(&mut request_buffer).await.unwrap();
+                            let response = &request_buffer[..n];
+                            println!(
+                                "Replica {} replied with {}",
+                                i,
+                                String::from_utf8_lossy(response)
+                            );
                         }
-                        println!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
-                        *offset += 1;
                     }
-                }
-                for i in useless_streams {
-                    streams.remove(i);
+                    TcpStreamMessage::Data(data) => {
+                        if data.len() == 0 {
+                            continue;
+                        }
+                        let mut streams = streamss.write().await;
+                        let mut useless_streams = vec![];
+                        command_buffer.push(data);
+                        for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                            for data in &command_buffer[*offset..] {
+                                if let Err(e) = stream.write_all(&data).await {
+                                    println!("removing replica from the master, because of {}", e);
+                                    useless_streams.push(i);
+                                    break;
+                                }
+                                println!(
+                                    "sendig {} to replica {}",
+                                    String::from_utf8_lossy(data),
+                                    i
+                                );
+                                *offset += 1;
+                            }
+                        }
+                        for i in useless_streams {
+                            streams.remove(i);
+                        }
+                    }
                 }
             }
         });
@@ -92,7 +122,7 @@ async fn main() {
 
 async fn handle_connection(
     mut stream: TcpStream,
-    sender: SyncSender<Vec<u8>>,
+    data_sender: SyncSender<TcpStreamMessage>,
 ) -> Option<TcpStream> {
     let is_master = NODE.read().unwrap().master.is_none();
     println!("accepted new connection");
@@ -124,7 +154,9 @@ async fn handle_connection(
                     }
                     //send data to replicas before replying to client
                     if is_master && signals.send_to_replica {
-                        sender.send(request.into()).unwrap();
+                        data_sender
+                            .send(TcpStreamMessage::Data(request.into()))
+                            .unwrap();
                     }
                     if let Err(e) = stream.write_all(&response).await {
                         eprintln!("Error writing {:?}", e);
@@ -134,7 +166,8 @@ async fn handle_connection(
                         let mut node = NODE.write().unwrap();
                         let replicas: &mut Vec<SyncSender<Vec<u8>>> = node.replicas.as_mut();
                         println!("New replica {} is being added by {}", replicas.len(), req);
-                        replicas.push(sender);
+                        // TODO:
+                        // replicas.push(data_sender);
                         let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
                         let mutex = mutex.lock().unwrap();
                         cvar.notify_all();
