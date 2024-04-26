@@ -61,7 +61,8 @@ async fn main() {
                         for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                             stream.write_all(&replconf_get_ack).await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            match stream.read(&mut request_buffer).await {
+                            let res = stream.read(&mut request_buffer).await;
+                            match res {
                                 Ok(n) => {
                                     let response = &request_buffer[..n];
                                     let result = NODE
@@ -74,9 +75,10 @@ async fn main() {
                                     cvar.notify_all();
                                     drop(mutex);
                                     println!(
-                                        "Replica {}:{} replied with {}",
+                                        "Replica {}:{} replied with {}:{}",
                                         i,
                                         result,
+                                        n,
                                         String::from_utf8_lossy(response)
                                     );
                                 }
