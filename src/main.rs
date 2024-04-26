@@ -91,6 +91,7 @@ async fn main() {
                     if is_ack {
                         stream.write_all(&replconf_get_ack).await;
                         let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                        stream.readable().await;
                         let res = stream.try_read(&mut request_buffer);
                         match res {
                             Ok(n) => {
