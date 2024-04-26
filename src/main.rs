@@ -69,6 +69,7 @@ async fn main() {
                 }
                 let mut streams = streamss.write().await;
                 let mut new_map = BTreeMap::new();
+                let old_size = streams.len();
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
                     let mut is_uselss = false;
@@ -127,6 +128,15 @@ async fn main() {
                     } else {
                         println!("removing replica {}, {:?}", i, stream);
                     }
+                }
+                let new_size = new_map.len();
+                if new_size != old_size {
+                    println!(
+                        "have removend {} values new_size: {}, old_size: {}",
+                        new_size - old_size,
+                        new_size,
+                        old_size
+                    );
                 }
                 while let Some(entry) = new_map.first_entry() {
                     let (k, v) = entry.remove_entry();
