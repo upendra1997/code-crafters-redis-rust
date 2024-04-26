@@ -76,9 +76,7 @@ async fn main() {
         let streams = streams.clone();
         match listener.accept().await {
             Ok((stream, _addr)) => {
-                tokio::spawn(async move { handle_connection(streams, stream, sender).await })
-                    .await
-                    .unwrap();
+                tokio::spawn(async move { handle_connection(streams, stream, sender).await });
             }
             Err(e) => {
                 eprintln!("error: {:?}", e);
