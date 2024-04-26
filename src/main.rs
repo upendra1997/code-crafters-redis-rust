@@ -216,7 +216,10 @@ async fn handle_connection(
                 }
             }
             Err(e) => {
-                eprintln!("error reading from tcp stream: {:?}", e);
+                eprintln!(
+                    "error reading from tcp stream: {:?} {:?}",
+                    e, request_buffer
+                );
                 break None;
             }
         }
