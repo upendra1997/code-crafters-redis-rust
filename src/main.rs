@@ -1,6 +1,6 @@
 use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
@@ -28,8 +28,8 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> =
-        Arc::new(SendableRwLock::new(vec![]));
+    let streams: Arc<SendableRwLock<BTreeMap<usize, (TcpStream, usize)>>> =
+        Arc::new(SendableRwLock::new(BTreeMap::new()));
     let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
         mpsc::sync_channel(1024);
     let mut node = NODE.write().unwrap();
@@ -68,21 +68,23 @@ async fn main() {
                     is_ack = true;
                 }
                 let mut streams = streamss.write().await;
-                let mut useless_streams = vec![];
-                for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                let mut new_map = BTreeMap::new();
+                while let Some(entry) = streams.first_entry() {
+                    let (i, (mut stream, mut offset)) = entry.remove_entry();
+                    let mut is_uselss = false;
                     let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
                         Resp::Binary("REPLCONF".as_bytes().into()),
                         Resp::Binary("GETACK".as_bytes().into()),
                         Resp::Binary("*".as_bytes().into()),
                     ]));
-                    for data in &command_buffer[*offset..] {
+                    for data in &command_buffer[offset..] {
                         if let Err(e) = stream.write_all(&data).await {
                             println!("removing replica from the master, because of {}", e);
-                            useless_streams.push(i);
+                            is_uselss = true;
                             break;
                         }
                         println!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
-                        *offset += 1;
+                        offset += 1;
                     }
 
                     if is_ack {
@@ -93,7 +95,7 @@ async fn main() {
                             Ok(n) => {
                                 let response = &request_buffer[..n];
                                 if n == 0 {
-                                    useless_streams.push(i);
+                                    is_uselss = true;
                                     continue;
                                 }
                                 let result = NODE
@@ -115,18 +117,17 @@ async fn main() {
                             }
                             Err(e) => {
                                 println!("Replica {} errored with {}", i, e);
-                                useless_streams.push(i);
-                                break;
+                                is_uselss = true;
                             }
                         }
                     }
+                    if !is_uselss {
+                        new_map.insert(i, (stream, offset));
+                    }
                 }
-                let mut hash = HashSet::new();
-                for i in useless_streams {
-                    hash.insert(i);
-                }
-                for i in hash {
-                    streams.remove(i);
+                while let Some(entry) = new_map.first_entry() {
+                    let (k, v) = entry.remove_entry();
+                    streams.insert(k, v);
                 }
             }
         });
@@ -141,7 +142,8 @@ async fn main() {
                         if is_master {
                             println!("sending commands to replica");
                             let mut streams = streams.write().await;
-                            streams.push((stream, 0));
+                            let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
+                            streams.insert(max + 1, (stream, 0));
                         }
                     }
                 });
