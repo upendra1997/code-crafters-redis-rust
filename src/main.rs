@@ -218,7 +218,8 @@ async fn handle_connection(
             Err(e) => {
                 eprintln!(
                     "error reading from tcp stream: {:?} {:?}",
-                    e, request_buffer
+                    e,
+                    String::from_utf8_lossy(&request_buffer)
                 );
                 break None;
             }
