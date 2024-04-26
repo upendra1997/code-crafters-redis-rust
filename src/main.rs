@@ -13,12 +13,18 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::{debug, info};
+use tracing::{debug, info, Level};
+use tracing_subscriber::FmtSubscriber;
 
 const REQUEST_BUFFER_SIZE: usize = 536870912;
 
 #[tokio::main]
 async fn main() {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::TRACE)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     debug!("Logs from your program will appear here!");
     let listener = TcpListener::bind(format!("127.0.0.1:{}", NODE.read().unwrap().port))
         .await
