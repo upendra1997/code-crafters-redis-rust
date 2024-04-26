@@ -154,6 +154,7 @@ async fn main() {
                     new_size,
                     old_size
                 );
+                debug!("updated replica map: {:?}", new_map);
                 while let Some(entry) = new_map.first_entry() {
                     let (k, v) = entry.remove_entry();
                     streams.insert(k, v);
