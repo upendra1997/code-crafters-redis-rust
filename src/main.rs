@@ -123,6 +123,8 @@ async fn main() {
                     }
                     if !is_uselss {
                         new_map.insert(i, (stream, offset));
+                    } else {
+                        eprintln!("removing replica {}, {:?}", i, stream);
                     }
                 }
                 while let Some(entry) = new_map.first_entry() {
