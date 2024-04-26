@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::Instant;
+use tracing::{debug, error, info};
 
 mod rdb;
 pub mod resp;
@@ -329,7 +330,7 @@ fn handle_command(
             }
         }
         _ => {
-            eprintln!("invalid command {:?}", command);
+            error!("invalid command {:?}", command);
             SerDe::serialize(Resp::Error(Cow::Owned(format!(
                 "invalid command {:?}",
                 command
@@ -341,7 +342,7 @@ fn handle_command(
 
 pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> (Vec<u8>, usize) {
     let (input, n) = SerDe::deserialize(request_buffer);
-    println!(
+    info!(
         "handling input <<{}>>",
         String::from_utf8_lossy(&request_buffer[..n])
     );
@@ -361,19 +362,17 @@ pub fn handle_input(request_buffer: &[u8], signals: SignalSender) -> (Vec<u8>, u
         }
         Resp::Binary(data) => {
             let rdb_file = rdb::Rdb::from(data.as_ref());
-            println!("proccessed rdb file data: {:?}", rdb_file.store);
+            debug!("proccessed rdb file data: {:?}", rdb_file.store);
             let mut store = STORE.write().unwrap();
             for (k, v) in rdb_file.store {
                 store.insert(k, v);
             }
             vec![]
-            // println!("ERROR: should not have recived a binary command skipping the command");
-            // (vec![], false)
         }
         Resp::Error(_) => todo!(),
         Resp::Integer(_) => todo!(),
         Resp::String(_) => {
-            println!(
+            info!(
                 "ignoring string command: {}",
                 String::from_utf8_lossy(&request_buffer[..n])
             );

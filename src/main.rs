@@ -13,7 +13,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::{debug, info, Level};
+use tracing::{debug, error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 const REQUEST_BUFFER_SIZE: usize = 536870912;
@@ -46,9 +46,9 @@ async fn main() {
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
     if is_master {
-        debug!("Node is master");
+        info!("Node is master");
     } else {
-        debug!("Node is replica");
+        info!("Node is replica");
     }
     if is_master {
         // TODO:
@@ -88,11 +88,11 @@ async fn main() {
                     ]));
                     for data in &command_buffer[offset..] {
                         if let Err(e) = stream.write_all(&data) {
-                            println!("removing replica from the master, because of {}", e);
+                            info!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
                         }
-                        println!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
+                        info!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
                         offset += 1;
                     }
 
@@ -117,7 +117,7 @@ async fn main() {
                                     let mutex = mutex.lock().unwrap();
                                     cvar.notify_all();
                                     drop(mutex);
-                                    println!(
+                                    info!(
                                         "Replica {}:{} replied with {}:{}",
                                         i,
                                         result,
@@ -130,7 +130,7 @@ async fn main() {
                                     continue;
                                 }
                                 Err(e) => {
-                                    println!("Replica {} errored with {}", i, e);
+                                    error!("Replica {} errored with {}", i, e);
                                     is_uselss = true;
                                     break;
                                 }
@@ -140,11 +140,11 @@ async fn main() {
                     if !is_uselss {
                         new_map.insert(i, (stream, offset));
                     } else {
-                        println!("removing replica {}, {:?}", i, stream);
+                        info!("removing replica {}, {:?}", i, stream);
                     }
                 }
                 let new_size = new_map.len();
-                println!(
+                info!(
                     "have removend {} values new_size: {}, old_size: {}",
                     new_size - old_size,
                     new_size,
@@ -165,7 +165,7 @@ async fn main() {
                 tokio::spawn(async move {
                     if let Some(stream) = handle_connection(stream, sender).await {
                         if is_master {
-                            println!("sending commands to replica");
+                            debug!("sending commands to replica");
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
                             let stream = stream.into_std().unwrap();
@@ -178,7 +178,7 @@ async fn main() {
                 });
             }
             Err(e) => {
-                eprintln!("error: {:?}", e);
+                error!("error: {:?}", e);
             }
         }
     }
@@ -189,12 +189,12 @@ async fn handle_connection(
     data_sender: SyncSender<TcpStreamMessage>,
 ) -> Option<TcpStream> {
     let is_master = NODE.read().unwrap().master.is_none();
-    println!("accepted new connection");
+    debug!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {
         match stream.read(&mut request_buffer).await {
             Ok(n) => {
-                println!("read {} bytes", n);
+                info!("read {} bytes", n);
                 if n == 0 {
                     break None;
                 }
@@ -204,11 +204,11 @@ async fn handle_connection(
                         break;
                     }
                     let req = std::str::from_utf8(request).unwrap();
-                    println!("REQ: {:?}", req);
+                    debug!("REQ: {:?}", req);
                     let (tx, rx) = SignalSender::new();
                     let (response, n) = handle_input(request, tx);
                     let signals = rx.try_recv();
-                    println!("RES: {}", String::from_utf8_lossy(&response));
+                    debug!("RES: {}", String::from_utf8_lossy(&response));
                     //send data to replicas before replying to client
                     if is_master && signals.send_to_replica {
                         data_sender
@@ -216,7 +216,7 @@ async fn handle_connection(
                             .unwrap();
                     }
                     if let Err(e) = stream.write_all(&response).await {
-                        eprintln!("Error writing {:?}", e);
+                        error!("Error writing {:?}", e);
                     }
                     stream.flush().await.unwrap();
                     if is_master && signals.new_node {
@@ -225,7 +225,7 @@ async fn handle_connection(
                             .unwrap()
                             .replicas
                             .fetch_add(1, Ordering::Relaxed);
-                        println!("New replica {} is being added by {}", result, req);
+                        info!("New replica {} is being added by {}", result, req);
                         let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
                         let mutex = mutex.lock().unwrap();
                         cvar.notify_all();
@@ -236,7 +236,7 @@ async fn handle_connection(
                 }
             }
             Err(e) => {
-                eprintln!(
+                error!(
                     "error reading from tcp stream: {:?} {:?}",
                     e,
                     String::from_utf8_lossy(&request_buffer)
@@ -257,7 +257,7 @@ async fn send_command_to_master(
     writer.write_all(command).await.unwrap();
     writer.flush().await.unwrap();
     let n = reader.read(request_buffer).await.unwrap();
-    println!(
+    info!(
         "reply from master: {}",
         String::from_utf8_lossy(&request_buffer[..n])
     );
@@ -291,7 +291,7 @@ async fn handle_replication() {
     send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
     let n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
     NODE.write().unwrap().master.as_mut().map(|m| m.offset += 1);
-    println!("listening to master for commands");
+    debug!("listening to master for commands");
     let mut request = &request_buffer[..n];
     loop {
         loop {
@@ -307,16 +307,9 @@ async fn handle_replication() {
                 replica.map(|m| m.offset += n as i64);
             }
             if signals.send_to_master {
-                match std::str::from_utf8(&response) {
-                    Ok(value) => {
-                        println!("reply to master: {}", value);
-                    }
-                    Err(_) => {
-                        println!("reply to master: {:?}", &response);
-                    }
-                }
+                info!("reply to master: {:}", String::from_utf8_lossy(&response));
                 if let Err(e) = stream.write_all(&response).await {
-                    eprintln!("Error writing {:?}", e);
+                    error!("Error writing {:?}", e);
                 }
             }
             stream.flush().await.unwrap();
@@ -330,7 +323,7 @@ async fn handle_replication() {
                 break;
             }
         }
-        println!(
+        info!(
             "input from master: {}",
             String::from_utf8_lossy(&request_buffer[..n])
         );

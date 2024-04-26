@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use tracing::error;
+
 pub trait SerDe {
     type Input;
     type Output;
@@ -24,7 +26,7 @@ pub enum Resp<'a> {
 }
 
 fn make_not_sure(request_buffer: &[u8], message: u32) -> (Resp, usize) {
-    println!(
+    error!(
         "trying to parse request_buffer: {:?}, but failed on {}",
         request_buffer, message
     );

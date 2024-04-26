@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use tracing::{debug, error};
+
 use crate::resp::Resp;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -173,22 +175,22 @@ impl From<&[u8]> for Rdb {
         // println!("{:#0x?}", auxiliary_fields);
         let (_, _) = parse_auxiliary_fields(auxiliary_fields);
         let (database_selecter, data) = data.split_first().unwrap();
-        println!("database selecter: {:#0x?}", database_selecter);
+        debug!("database selecter: {:#0x?}", database_selecter);
         let (database_selected, data) = data.split_first().unwrap();
-        println!("database selected: {:#0x?}", database_selected);
+        debug!("database selected: {:#0x?}", database_selected);
         let (resize_db, mut data) = data.split_first().unwrap();
         if *resize_db != 0xfb {
             return Rdb { store };
         }
-        println!("resize db: {:#0x?}", resize_db);
+        debug!("resize db: {:#0x?}", resize_db);
         // println!("{:08b}", data[1]);
         // println!("{:08b}", data[2]);
         // println!("{:08b}", data[3]);
         let (size_of_hash_table, size) = length_encoding(data);
-        println!("size of hash table: {:?}", size_of_hash_table);
+        debug!("size of hash table: {:?}", size_of_hash_table);
         data = &data[size..];
         let (size_of_expired_hash_table, size) = length_encoding(data);
-        println!(
+        debug!(
             "size of expired hash table: {:?}",
             size_of_expired_hash_table
         );
@@ -213,11 +215,11 @@ impl From<&[u8]> for Rdb {
             match ValueEncoded::from(*value_type) {
                 ValueEncoded::String => {
                     let (key, size) = string_encoding(temp_data);
-                    println!("got key from rdb: {:?}", key);
+                    debug!("got key from rdb: {:?}", key);
                     let (_, temp_data1) = temp_data.split_at(size);
                     temp_data = temp_data1;
                     let (value, size) = string_encoding(temp_data);
-                    println!("got value from rdb: {:?}", value);
+                    debug!("got value from rdb: {:?}", value);
                     store.insert(
                         Resp::Binary(Cow::Borrowed(&Into::<Vec<u8>>::into(key))).into(),
                         Resp::Binary(Cow::Borrowed(&Into::<Vec<u8>>::into(value))).into(),
@@ -231,7 +233,7 @@ impl From<&[u8]> for Rdb {
             data = temp_data;
         }
         if data[0] != 0xff {
-            println!("{:#0x?}", data);
+            error!("{:#0x?}", data);
             panic!("unread data in rdb");
         }
         // let (key_value_pair_seconds, data) = data.split_at(key_value_pair_millis_start);
