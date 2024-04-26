@@ -125,6 +125,8 @@ async fn main() {
                         new_map.insert(i, (stream, offset));
                     } else {
                         println!("removing replica {}, {:?}", i, stream);
+                        //TODO: remove it here
+                        new_map.insert(i, (stream, offset));
                     }
                 }
                 while let Some(entry) = new_map.first_entry() {
