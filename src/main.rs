@@ -13,7 +13,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::{debug, error, info, Level};
+use tracing::{debug, error, info, span, Level};
 use tracing_subscriber::FmtSubscriber;
 
 const REQUEST_BUFFER_SIZE: usize = 536870912;
@@ -81,6 +81,8 @@ async fn main() {
                 debug!("replica map: {:?}", streams);
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
+                    let replica = span!(Level::INFO, "replica", id = i);
+                    let _gurad = replica.enter();
                     let mut is_uselss = false;
                     let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
                         Resp::Binary("REPLCONF".as_bytes().into()),
