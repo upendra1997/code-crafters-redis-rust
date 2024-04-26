@@ -250,7 +250,7 @@ fn handle_command(
                     cvar.wait_timeout_while(
                         mutex.lock().unwrap(),
                         Duration::from_millis(millis),
-                        |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) < n,
+                        |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n,
                     )
                     .unwrap();
                 }
