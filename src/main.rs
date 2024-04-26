@@ -1,12 +1,13 @@
 use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
 use std::collections::{BTreeMap, HashSet};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::io;
 use tokio::sync::RwLock as SendableRwLock;
 use tokio::{
@@ -29,7 +30,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<BTreeMap<usize, (TcpStream, usize)>>> =
+    let streams: Arc<SendableRwLock<BTreeMap<usize, (StdTcpStream, usize)>>> =
         Arc::new(SendableRwLock::new(BTreeMap::new()));
     let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
         mpsc::sync_channel(1024);
@@ -80,7 +81,7 @@ async fn main() {
                         Resp::Binary("*".as_bytes().into()),
                     ]));
                     for data in &command_buffer[offset..] {
-                        if let Err(e) = stream.write_all(&data).await {
+                        if let Err(e) = stream.write_all(&data) {
                             println!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
@@ -90,10 +91,10 @@ async fn main() {
                     }
 
                     if is_ack {
-                        stream.write_all(&replconf_get_ack).await;
+                        stream.write_all(&replconf_get_ack);
                         let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                         loop {
-                            let res = stream.try_read(&mut request_buffer);
+                            let res = stream.read(&mut request_buffer);
                             match res {
                                 Ok(0) => {
                                     is_uselss = true;
@@ -161,6 +162,10 @@ async fn main() {
                             println!("sending commands to replica");
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
+                            let mut stream = stream.into_std().unwrap();
+                            stream
+                                .set_read_timeout(Some(Duration::from_millis(1)))
+                                .unwrap();
                             streams.insert(max + 1, (stream, 0));
                         }
                     }
