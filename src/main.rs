@@ -1,5 +1,6 @@
 use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
+use std::collections::HashSet;
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
@@ -50,70 +51,78 @@ async fn main() {
         tokio::spawn(async move {
             let mut command_buffer: Vec<Vec<u8>> = Vec::new();
             for data in reciver {
-                match data {
-                    TcpStreamMessage::CountAcks(_) => {
-                        let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
-                            Resp::Binary("REPLCONF".as_bytes().into()),
-                            Resp::Binary("GETACK".as_bytes().into()),
-                            Resp::Binary("*".as_bytes().into()),
-                        ]));
-                        let mut streams = streamss.write().await;
-                        for (i, (stream, offset)) in streams.iter_mut().enumerate() {
-                            stream.write_all(&replconf_get_ack).await;
-                            let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            let res = stream.read(&mut request_buffer).await;
-                            match res {
-                                Ok(n) => {
-                                    let response = &request_buffer[..n];
-                                    let result = NODE
-                                        .write()
-                                        .unwrap()
-                                        .replicas
-                                        .fetch_add(1, Ordering::Relaxed);
-                                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                                    let mutex = mutex.lock().unwrap();
-                                    cvar.notify_all();
-                                    drop(mutex);
-                                    println!(
-                                        "Replica {}:{} replied with {}:{}",
-                                        i,
-                                        result,
-                                        n,
-                                        String::from_utf8_lossy(response)
-                                    );
-                                }
-                                Err(e) => {
-                                    println!("Replica {} errored with {}", i, e);
-                                }
-                            }
-                        }
+                // match data {
+                //     TcpStreamMessage::CountAcks(_) => {
+                //         let mut streams = streamss.write().await;
+                //         for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                //         }
+                //     }
+                //     TcpStreamMessage::Data(data) => {
+                let mut is_ack = false;
+                if let TcpStreamMessage::Data(data) = data {
+                    if data.len() == 0 {
+                        continue;
                     }
-                    TcpStreamMessage::Data(data) => {
-                        if data.len() == 0 {
-                            continue;
+                    command_buffer.push(data);
+                } else {
+                    is_ack = true;
+                }
+                let mut streams = streamss.write().await;
+                let mut useless_streams = vec![];
+                for (i, (stream, offset)) in streams.iter_mut().enumerate() {
+                    let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
+                        Resp::Binary("REPLCONF".as_bytes().into()),
+                        Resp::Binary("GETACK".as_bytes().into()),
+                        Resp::Binary("*".as_bytes().into()),
+                    ]));
+                    for data in &command_buffer[*offset..] {
+                        if let Err(e) = stream.write_all(&data).await {
+                            println!("removing replica from the master, because of {}", e);
+                            useless_streams.push(i);
+                            break;
                         }
-                        let mut streams = streamss.write().await;
-                        let mut useless_streams = vec![];
-                        command_buffer.push(data);
-                        for (i, (stream, offset)) in streams.iter_mut().enumerate() {
-                            for data in &command_buffer[*offset..] {
-                                if let Err(e) = stream.write_all(&data).await {
-                                    println!("removing replica from the master, because of {}", e);
-                                    useless_streams.push(i);
-                                    break;
-                                }
+                        println!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
+                        *offset += 1;
+                    }
+
+                    if is_ack {
+                        stream.write_all(&replconf_get_ack).await;
+                        let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                        let res = stream.read(&mut request_buffer).await;
+                        match res {
+                            Ok(n) => {
+                                let response = &request_buffer[..n];
+                                let result = NODE
+                                    .write()
+                                    .unwrap()
+                                    .replicas
+                                    .fetch_add(1, Ordering::Relaxed);
+                                let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                                let mutex = mutex.lock().unwrap();
+                                cvar.notify_all();
+                                drop(mutex);
                                 println!(
-                                    "sendig {} to replica {}",
-                                    String::from_utf8_lossy(data),
-                                    i
+                                    "Replica {}:{} replied with {}:{}",
+                                    i,
+                                    result,
+                                    n,
+                                    String::from_utf8_lossy(response)
                                 );
-                                *offset += 1;
+                            }
+                            Err(e) => {
+                                println!("Replica {} errored with {}", i, e);
+                                useless_streams.push(i);
+                                break;
                             }
                         }
-                        for i in useless_streams {
-                            streams.remove(i);
-                        }
                     }
+                }
+                let mut hash = HashSet::new();
+                for i in useless_streams {
+                    hash.insert(i);
+                }
+                for i in hash {
+                    streams.remove(i);
                 }
             }
         });
