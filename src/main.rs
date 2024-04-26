@@ -1,12 +1,11 @@
 use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpStream as StdTcpStream;
-use std::ops::DerefMut;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io;
 use tokio::sync::RwLock as SendableRwLock;
@@ -91,7 +90,7 @@ async fn main() {
                     }
 
                     if is_ack {
-                        stream.write_all(&replconf_get_ack);
+                        stream.write_all(&replconf_get_ack).unwrap();
                         let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                         loop {
                             let res = stream.read(&mut request_buffer);
@@ -162,7 +161,7 @@ async fn main() {
                             println!("sending commands to replica");
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
-                            let mut stream = stream.into_std().unwrap();
+                            let stream = stream.into_std().unwrap();
                             stream
                                 .set_read_timeout(Some(Duration::from_millis(1)))
                                 .unwrap();
@@ -202,14 +201,7 @@ async fn handle_connection(
                     let (tx, rx) = SignalSender::new();
                     let (response, n) = handle_input(request, tx);
                     let signals = rx.try_recv();
-                    match std::str::from_utf8(&response) {
-                        Ok(value) => {
-                            println!("RES: {:?}", value);
-                        }
-                        Err(_) => {
-                            println!("RES: {:?}", response);
-                        }
-                    }
+                    println!("RES: {}", String::from_utf8_lossy(&response));
                     //send data to replicas before replying to client
                     if is_master && signals.send_to_replica {
                         data_sender

@@ -8,7 +8,7 @@ pub struct Rdb {
 }
 
 const MAGIC: [u8; 9] = [0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x30, 0x33];
-const EMPTY_RDB: &[u8; 88] = include_bytes!("../resources/empty.rdb");
+const _EMPTY_RDB: &[u8; 88] = include_bytes!("../resources/empty.rdb");
 
 // 00000000: 5245 4449 5330 3031 31fa 0972 6564 6973  REDIS0011..redis
 // 00000010: 2d76 6572 0537 2e32 2e34 fa0a 7265 6469  -ver.7.2.4..redi
@@ -98,13 +98,13 @@ fn length_encoding(data: &[u8]) -> (LengthEncodedValue, usize) {
         let length = (encoding & length_encoding_6_bits) as usize;
         (LengthEncodedValue::USIZE(length), 1)
     } else if *encoding & length_encoding_14_bits == *encoding {
-        let (other_length_byte, data) = data.split_first().unwrap();
+        let (other_length_byte, _data) = data.split_first().unwrap();
         // (0 | first) << 8 | second
         let length =
             u16::from_be_bytes([(encoding & length_encoding_6_bits), *other_length_byte]) as usize;
         (LengthEncodedValue::USIZE(length), 1 + 1)
     } else if *encoding & length_encoding_32_bits == *encoding {
-        let (other_length_bytes, data) = data.split_at(4);
+        let (other_length_bytes, _data) = data.split_at(4);
         // println!("{:#08b}", encoding);
         // println!("{:#0x?}", other_length_bytes);
         // println!("{:08b}", data[0]);
@@ -116,18 +116,18 @@ fn length_encoding(data: &[u8]) -> (LengthEncodedValue, usize) {
         let length = u32::from_be_bytes(array) as usize;
         (LengthEncodedValue::USIZE(length), 1 + 4)
     } else if i8_as_string == *encoding {
-        let (next_byte, data) = data.split_first().unwrap();
+        let (next_byte, _data) = data.split_first().unwrap();
         (
             LengthEncodedValue::I8(i8::from_be_bytes([*next_byte])),
             1 + 1,
         )
     } else if i16_as_string == *encoding {
-        let (bytes, data) = data.split_at(2);
+        let (bytes, _data) = data.split_at(2);
         let mut array = [0; 2];
         array.copy_from_slice(bytes);
         (LengthEncodedValue::I16(i16::from_be_bytes(array)), 1 + 2)
     } else if i32_as_string == *encoding {
-        let (bytes, data) = data.split_at(4);
+        let (bytes, _data) = data.split_at(4);
         let mut array = [0; 4];
         array.copy_from_slice(bytes);
         (LengthEncodedValue::I32(i32::from_be_bytes(array)), 1 + 4)
@@ -162,19 +162,19 @@ impl From<&[u8]> for Rdb {
     fn from(value: &[u8]) -> Self {
         let mut store = HashMap::new();
         // println!("{:#0x?}", value);
-        let (magic_headers, mut data) = value.split_at(MAGIC.len());
+        let (_magic_headers, mut data) = value.split_at(MAGIC.len());
         // println!("{:#0x?}", magic_headers);
         let auxiliary_fields_start = data.into_iter().position(|&x| x == 0xfa).unwrap();
         // println!("{:#0x?}", auxiliary_fields_start);
         data = data.split_at(auxiliary_fields_start).1;
         // TODO: move it into a loop where we have multiple dbs
         let data_base_selectior_frame_start = data.into_iter().position(|&x| x == 0xfe).unwrap();
-        let (auxiliary_fields, mut data) = data.split_at(data_base_selectior_frame_start);
+        let (auxiliary_fields, data) = data.split_at(data_base_selectior_frame_start);
         // println!("{:#0x?}", auxiliary_fields);
         let (_, _) = parse_auxiliary_fields(auxiliary_fields);
-        let (database_selecter, mut data) = data.split_first().unwrap();
+        let (database_selecter, data) = data.split_first().unwrap();
         println!("database selecter: {:#0x?}", database_selecter);
-        let (database_selected, mut data) = data.split_first().unwrap();
+        let (database_selected, data) = data.split_first().unwrap();
         println!("database selected: {:#0x?}", database_selected);
         let (resize_db, mut data) = data.split_first().unwrap();
         if *resize_db != 0xfb {

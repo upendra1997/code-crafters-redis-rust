@@ -3,7 +3,6 @@ use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::sleep;
 use std::{
     borrow::Cow,
     cmp::Reverse,
@@ -248,12 +247,13 @@ fn handle_command(
                             .as_ref()
                             .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
                         let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        cvar.wait_timeout_while(
-                            mutex.lock().unwrap(),
-                            Duration::from_millis(millis),
-                            |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n,
-                        )
-                        .unwrap();
+                        let _lock = mutex.lock().unwrap();
+                        let _ = cvar
+                            .wait_timeout_while(_lock, Duration::from_millis(millis), |_| {
+                                NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n
+                            })
+                            .unwrap();
+                        drop(mutex);
                     }
                 }
             }
