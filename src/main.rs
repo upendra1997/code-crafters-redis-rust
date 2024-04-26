@@ -69,6 +69,10 @@ async fn main() {
                                         .unwrap()
                                         .replicas
                                         .fetch_add(1, Ordering::Relaxed);
+                                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                                    let mutex = mutex.lock().unwrap();
+                                    cvar.notify_all();
+                                    drop(mutex);
                                     println!(
                                         "Replica {}:{} replied with {}",
                                         i,

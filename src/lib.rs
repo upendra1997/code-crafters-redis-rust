@@ -236,23 +236,25 @@ fn handle_command(
                     .parse::<usize>()
                     .unwrap();
                 if let Resp::Binary(millisecond) = arguments.pop_front().unwrap() {
-                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                    let millis = str::from_utf8(millisecond.as_ref())
-                        .unwrap()
-                        .parse::<u64>()
+                    if n == 0 {
+                    } else {
+                        let millis = str::from_utf8(millisecond.as_ref())
+                            .unwrap()
+                            .parse::<u64>()
+                            .unwrap();
+                        NODE.read()
+                            .unwrap()
+                            .data_sender
+                            .as_ref()
+                            .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
+                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                        cvar.wait_timeout_while(
+                            mutex.lock().unwrap(),
+                            Duration::from_millis(millis),
+                            |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n,
+                        )
                         .unwrap();
-                    NODE.write().unwrap().replicas.store(0, Ordering::Relaxed);
-                    NODE.read()
-                        .unwrap()
-                        .data_sender
-                        .as_ref()
-                        .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
-                    cvar.wait_timeout_while(
-                        mutex.lock().unwrap(),
-                        Duration::from_millis(millis),
-                        |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n,
-                    )
-                    .unwrap();
+                    }
                 }
             }
             SerDe::serialize(Resp::Integer(
