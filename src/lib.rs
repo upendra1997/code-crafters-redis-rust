@@ -241,6 +241,7 @@ fn handle_command(
                         .unwrap()
                         .parse::<u64>()
                         .unwrap();
+                    NODE.write().unwrap().replicas.store(0, Ordering::Relaxed);
                     NODE.read()
                         .unwrap()
                         .data_sender

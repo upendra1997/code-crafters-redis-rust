@@ -61,13 +61,25 @@ async fn main() {
                         for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                             stream.write_all(&replconf_get_ack).await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            let n = stream.read(&mut request_buffer).await.unwrap();
-                            let response = &request_buffer[..n];
-                            println!(
-                                "Replica {} replied with {}",
-                                i,
-                                String::from_utf8_lossy(response)
-                            );
+                            match stream.read(&mut request_buffer).await {
+                                Ok(n) => {
+                                    let response = &request_buffer[..n];
+                                    let result = NODE
+                                        .write()
+                                        .unwrap()
+                                        .replicas
+                                        .fetch_add(1, Ordering::Relaxed);
+                                    println!(
+                                        "Replica {}:{} replied with {}",
+                                        i,
+                                        result,
+                                        String::from_utf8_lossy(response)
+                                    );
+                                }
+                                Err(e) => {
+                                    println!("Replica {} errored with {}", i, e);
+                                }
+                            }
                         }
                     }
                     TcpStreamMessage::Data(data) => {
@@ -181,7 +193,7 @@ async fn handle_connection(
                 }
             }
             Err(e) => {
-                eprintln!("error reading from tcp stream {}", e);
+                eprintln!("error reading from tcp stream: {:?}", e);
                 break None;
             }
         }
