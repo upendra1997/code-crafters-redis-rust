@@ -3,6 +3,7 @@ use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
 use tokio::sync::RwLock as SendableRwLock;
@@ -164,11 +165,12 @@ async fn handle_connection(
                     }
                     stream.flush().await.unwrap();
                     if is_master && signals.new_node {
-                        let mut node = NODE.write().unwrap();
-                        let replicas: &mut Vec<SyncSender<Vec<u8>>> = node.replicas.as_mut();
-                        println!("New replica {} is being added by {}", replicas.len(), req);
-                        // TODO:
-                        // replicas.push(data_sender);
+                        let result = NODE
+                            .write()
+                            .unwrap()
+                            .replicas
+                            .fetch_add(1, Ordering::Relaxed);
+                        println!("New replica {} is being added by {}", result, req);
                         let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
                         let mutex = mutex.lock().unwrap();
                         cvar.notify_all();

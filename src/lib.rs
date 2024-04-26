@@ -1,5 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::sleep;
@@ -24,11 +25,10 @@ pub struct Node {
     pub offset: i64,
 }
 
-#[derive(Clone)]
 pub struct State {
     pub master: Option<Node>,
     pub port: usize,
-    pub replicas: Vec<SyncSender<Vec<u8>>>,
+    pub replicas: AtomicUsize,
     pub data_sender: Option<SyncSender<TcpStreamMessage>>,
 }
 
@@ -123,7 +123,7 @@ lazy_static! {
         RwLock::new(State {
             master: master,
             port: port,
-            replicas: vec![],
+            replicas: AtomicUsize::new(0),
             data_sender: None,
         })
     };
@@ -249,12 +249,14 @@ fn handle_command(
                     cvar.wait_timeout_while(
                         mutex.lock().unwrap(),
                         Duration::from_millis(millis),
-                        |_| NODE.read().unwrap().replicas.len() < n,
+                        |_| NODE.read().unwrap().replicas.load(Ordering::Relaxed) < n,
                     )
                     .unwrap();
                 }
             }
-            SerDe::serialize(Resp::Integer(NODE.read().unwrap().replicas.len() as i64))
+            SerDe::serialize(Resp::Integer(
+                NODE.read().unwrap().replicas.load(Ordering::Relaxed) as i64,
+            ))
         }
         "SET" => {
             signal.send_to_replica.send(()).unwrap();
