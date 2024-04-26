@@ -32,6 +32,7 @@ async fn main() {
         mpsc::sync_channel(1024);
     let mut node = NODE.write().unwrap();
     node.data_sender = Some(sender.clone());
+    drop(node);
     let streamss = streams.clone();
     let is_master = NODE.read().unwrap().master.is_none();
     if is_master {
