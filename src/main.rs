@@ -1,10 +1,11 @@
 use redis_starter_rust::resp::{Resp, SerDe};
-use redis_starter_rust::{handle_input, SignalSender, NEW_NODE_NOTIFIER, NODE};
+use redis_starter_rust::{handle_input, SignalReceiver, SignalSender, NEW_NODE_NOTIFIER, NODE};
 use std::io::Write;
 use std::net::TcpStream as StdTcpStream;
 use std::ops::DerefMut;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
 use tokio::sync::RwLock as SendableRwLock;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -26,7 +27,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<Vec<(TcpStream, usize)>>> =
+    let streams: Arc<SendableRwLock<Vec<(Arc<Mutex<TcpStream>>, usize)>>> =
         Arc::new(SendableRwLock::new(vec![]));
     let (sender, reciver): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::sync_channel(1024);
     let streamss = streams.clone();
@@ -53,8 +54,10 @@ async fn main() {
                 command_buffer.push(data);
                 for (i, (stream, offset)) in streams.iter_mut().enumerate() {
                     for data in &command_buffer[*offset..] {
-                        if let Err(e) = stream.write_all(&data).await {
+                        let mut my_stream = stream.lock().await;
+                        if let Err(e) = my_stream.write_all(&data).await {
                             println!("removing replica from the master, because of {}", e);
+                            //TODO: should have a hashmap
                             useless_streams.push(i);
                             break;
                         }
@@ -73,15 +76,9 @@ async fn main() {
         let streams = streams.clone();
         match listener.accept().await {
             Ok((stream, _addr)) => {
-                tokio::spawn(async move {
-                    if let Some(stream) = handle_connection(stream, sender).await {
-                        if is_master {
-                            println!("sending commands to replica");
-                            let mut streams = streams.write().await;
-                            streams.push((stream, 0));
-                        }
-                    }
-                });
+                tokio::spawn(async move { handle_connection(streams, stream, sender).await })
+                    .await
+                    .unwrap();
             }
             Err(e) => {
                 eprintln!("error: {:?}", e);
@@ -90,15 +87,58 @@ async fn main() {
     }
 }
 
+async fn handle_signals(
+    rx: SignalReceiver,
+    sender: SyncSender<Vec<u8>>,
+    streams: Arc<SendableRwLock<Vec<(Arc<Mutex<TcpStream>>, usize)>>>,
+    stream: Arc<Mutex<TcpStream>>,
+) {
+    let is_master = NODE.read().unwrap().master.is_none();
+    let count_ack_reciever = rx.count_acks_recever;
+    for s in count_ack_reciever {
+        let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
+            Resp::Binary("REPLCONF".as_bytes().into()),
+            Resp::Binary("GETACK".as_bytes().into()),
+            Resp::Binary("*".as_bytes().into()),
+        ]));
+        sender.send(replconf_get_ack);
+        //send values to th ecountt
+        /*
+        let mut node = NODE.write().unwrap();
+        let replicas: &mut Vec<SyncSender<Vec<u8>>> = node.replicas.as_mut();
+        println!("New replica {} is being added by {}", replicas.len(), req);
+        replicas.push(sender);
+        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+        let mutex = mutex.lock().unwrap();
+        cvar.notify_all();
+        drop(mutex);
+        */
+    }
+    // let signals = rx.try_recv();
+    //send data to replicas before replying to client
+    let req = rx.data_recevr.try_recv().unwrap_or(vec![]);
+    if is_master && rx.send_to_replica_recever.try_recv().is_ok() {
+        sender.send(req).unwrap();
+    }
+    if is_master && rx.new_node_reciver.try_recv().is_ok() {
+        let mut streams = streams.write().await;
+        streams.push((stream, 0));
+    }
+}
+
 async fn handle_connection(
+    mut streams: Arc<SendableRwLock<Vec<(Arc<Mutex<TcpStream>>, usize)>>>,
     mut stream: TcpStream,
     sender: SyncSender<Vec<u8>>,
 ) -> Option<TcpStream> {
-    let is_master = NODE.read().unwrap().master.is_none();
     println!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+    let stream = Arc::new(Mutex::new(stream));
     loop {
-        match stream.read(&mut request_buffer).await {
+        let mut my_stream = stream.lock().await;
+        let res = my_stream.read(&mut request_buffer).await;
+        drop(my_stream);
+        match res {
             Ok(n) => {
                 println!("read {} bytes", n);
                 if n == 0 {
@@ -112,8 +152,16 @@ async fn handle_connection(
                     let req = std::str::from_utf8(request).unwrap();
                     println!("REQ: {:?}", req);
                     let (tx, rx) = SignalSender::new();
-                    let (response, n) = handle_input(request, tx);
-                    let signals = rx.try_recv();
+                    tokio::spawn(handle_signals(
+                        rx,
+                        sender.clone(),
+                        streams.clone(),
+                        stream.clone(),
+                    ));
+                    let mut req_clone = vec![];
+                    req_clone.extend_from_slice(request);
+                    tx.data.send(req_clone);
+                    let (response, n) = handle_input(request, tx.clone());
                     match std::str::from_utf8(&response) {
                         Ok(value) => {
                             println!("RES: {:?}", value);
@@ -122,34 +170,38 @@ async fn handle_connection(
                             println!("RES: {:?}", response);
                         }
                     }
-                    //send data to replicas before replying to client
-                    if is_master && signals.send_to_replica {
-                        sender.send(request.into()).unwrap();
-                    }
-                    if let Err(e) = stream.write_all(&response).await {
+                    let mut my_stream = stream.try_lock().unwrap();
+                    if let Err(e) = my_stream.write_all(&response).await {
                         eprintln!("Error writing {:?}", e);
                     }
-                    stream.flush().await.unwrap();
-                    if is_master && signals.new_node {
-                        let mut node = NODE.write().unwrap();
-                        let replicas: &mut Vec<SyncSender<Vec<u8>>> = node.replicas.as_mut();
-                        println!("New replica {} is being added by {}", replicas.len(), req);
-                        replicas.push(sender);
-                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        let mutex = mutex.lock().unwrap();
-                        cvar.notify_all();
-                        drop(mutex);
-                        return Some(stream);
-                    }
+                    my_stream.flush().await.unwrap();
                     request = &request[n..];
                 }
             }
             Err(e) => {
+                // https://forum.codecrafters.io/t/ruby-redis-replication-stage-18-error-reading-replica-acknowledgement/84/7
                 eprintln!("error reading from tcp stream {}", e);
                 break None;
             }
         }
     }
+}
+
+async fn send_command_to_replica(
+    stream: &mut TcpStream,
+    command: &[u8],
+    request_buffer: &mut [u8],
+) -> usize {
+    // let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+    let (mut reader, mut writer) = stream.split();
+    writer.write_all(command).await.unwrap();
+    writer.flush().await.unwrap();
+    let n = reader.read(request_buffer).await.unwrap();
+    println!(
+        "reply from replica: {}",
+        String::from_utf8_lossy(&request_buffer[..n])
+    );
+    n
 }
 
 async fn send_command_to_master(

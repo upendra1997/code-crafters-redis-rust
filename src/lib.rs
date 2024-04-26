@@ -1,5 +1,6 @@
 use crate::resp::{Resp, SerDe};
 use lazy_static::lazy_static;
+use std::sync::atomic::{self, AtomicUsize};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::sleep;
@@ -24,20 +25,22 @@ pub struct Node {
     pub offset: i64,
 }
 
-#[derive(Clone)]
 pub struct State {
     pub master: Option<Node>,
     pub port: usize,
-    pub replicas: Vec<SyncSender<Vec<u8>>>,
+    pub replicas: AtomicUsize,
 }
 
 // TODO: create a struct of all the senders, like new_node, send to masetr, send to replica, count
 // toward offset and so on.
+#[derive(Clone)]
 pub struct SignalSender {
     pub new_node: SyncSender<()>,
     pub send_to_master: SyncSender<()>,
     pub send_to_replica: SyncSender<()>,
     pub count_toward_offset: SyncSender<()>,
+    pub count_acks: SyncSender<()>,
+    pub data: SyncSender<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -46,6 +49,8 @@ pub struct Signal {
     pub send_to_master: bool,
     pub send_to_replica: bool,
     pub count_toward_offset: bool,
+    pub count_acks: bool,
+    pub data: Vec<u8>,
 }
 
 pub struct SignalReceiver {
@@ -53,6 +58,8 @@ pub struct SignalReceiver {
     pub send_to_master_recever: Receiver<()>,
     pub send_to_replica_recever: Receiver<()>,
     pub count_toward_offset_recever: Receiver<()>,
+    pub count_acks_recever: Receiver<()>,
+    pub data_recevr: Receiver<Vec<u8>>,
 }
 
 impl SignalReceiver {
@@ -62,6 +69,8 @@ impl SignalReceiver {
             send_to_master: self.send_to_master_recever.try_recv().is_ok(),
             send_to_replica: self.send_to_replica_recever.try_recv().is_ok(),
             count_toward_offset: self.count_toward_offset_recever.try_recv().is_ok(),
+            count_acks: self.count_acks_recever.try_recv().is_ok(),
+            data: self.data_recevr.try_recv().unwrap_or(vec![]),
         }
     }
 }
@@ -72,17 +81,23 @@ impl SignalSender {
         let (tx1, rx1) = mpsc::sync_channel(1);
         let (tx2, rx2) = mpsc::sync_channel(1);
         let (tx3, rx3) = mpsc::sync_channel(1);
+        let (tx4, rx4) = mpsc::sync_channel(1);
+        let (tx5, rx5) = mpsc::sync_channel(1);
         let sender = SignalSender {
             new_node: tx,
             send_to_master: tx1,
             send_to_replica: tx2,
             count_toward_offset: tx3,
+            count_acks: tx4,
+            data: tx5,
         };
         let receiver = SignalReceiver {
             new_node_reciver: rx,
             send_to_master_recever: rx1,
             send_to_replica_recever: rx2,
             count_toward_offset_recever: rx3,
+            count_acks_recever: rx4,
+            data_recevr: rx5,
         };
         (sender, receiver)
     }
@@ -117,7 +132,7 @@ lazy_static! {
         RwLock::new(State {
             master: master,
             port: port,
-            replicas: vec![],
+            replicas: AtomicUsize::new(0),
         })
     };
 }
@@ -235,15 +250,31 @@ fn handle_command(
                         .parse::<u64>()
                         .unwrap();
 
+                    NODE.write()
+                        .unwrap()
+                        .replicas
+                        .store(0, atomic::Ordering::Relaxed);
+
                     cvar.wait_timeout_while(
                         mutex.lock().unwrap(),
                         Duration::from_millis(millis),
-                        |_| NODE.read().unwrap().replicas.len() < n,
+                        |_| {
+                            NODE.read()
+                                .unwrap()
+                                .replicas
+                                .load(atomic::Ordering::Relaxed)
+                                < n
+                        },
                     )
                     .unwrap();
                 }
             }
-            SerDe::serialize(Resp::Integer(NODE.read().unwrap().replicas.len() as i64))
+            SerDe::serialize(Resp::Integer(
+                NODE.read()
+                    .unwrap()
+                    .replicas
+                    .load(atomic::Ordering::Relaxed) as i64,
+            ))
         }
         "SET" => {
             signal.send_to_replica.send(()).unwrap();
