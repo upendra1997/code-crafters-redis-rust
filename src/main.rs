@@ -82,11 +82,11 @@ async fn main() {
                     is_ack = true;
                 }
                 let mut streams = streamss.write().await;
-                let mut new_map = BTreeMap::new();
+                // let mut new_map = BTreeMap::new();
                 let old_size = streams.len();
                 debug!("replica map: {:?}", streams);
-                while let Some(entry) = streams.first_entry() {
-                    let (i, (mut stream, mut offset)) = entry.remove_entry();
+                for (i, (ref mut stream, ref mut offset)) in streams.iter_mut() {
+                    // let (i, (mut stream, mut offset)) = entry.remove_entry();
                     let replica = span!(Level::INFO, "replica", id = i);
                     let _gurad = replica.enter();
                     let mut is_uselss = false;
@@ -95,18 +95,18 @@ async fn main() {
                         Resp::Binary("GETACK".as_bytes().into()),
                         Resp::Binary("*".as_bytes().into()),
                     ]));
-                    for data in &command_buffer[offset..] {
+                    for data in &command_buffer[*offset..] {
                         if let Err(e) = stream.write_all(&data) {
                             error!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
                         }
                         info!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
-                        offset += 1;
+                        *offset += 1;
                     }
 
                     if is_ack {
-                        if offset <= 0 {
+                        if *offset <= 0 {
                             ack_count += 1;
                             info!("not sending replconf to the replica as offset is 0");
                         } else {
@@ -138,28 +138,28 @@ async fn main() {
                             }
                         }
                     }
-                    is_uselss = false;
-                    if !is_uselss {
-                        new_map.insert(i, (stream, offset));
-                    } else {
-                        info!(
-                            "removing replica id: {}, stream: {:?}, offset: {}",
-                            i, stream, offset
-                        );
-                    }
+                    // is_uselss = false;
+                    // if !is_uselss {
+                    //     new_map.insert(i, (stream, offset));
+                    // } else {
+                    //     info!(
+                    //         "removing replica id: {}, stream: {:?}, offset: {}",
+                    //         i, stream, offset
+                    //     );
+                    // }
                 }
-                let new_size = new_map.len();
-                info!(
-                    "have removed {} values new_size: {}, old_size: {}",
-                    old_size - new_size,
-                    new_size,
-                    old_size
-                );
-                debug!("updated replica map: {:?}", new_map);
-                while let Some(entry) = new_map.first_entry() {
-                    let (k, v) = entry.remove_entry();
-                    streams.insert(k, v);
-                }
+                // let new_size = new_map.len();
+                // info!(
+                //     "have removed {} values new_size: {}, old_size: {}",
+                //     old_size - new_size,
+                //     new_size,
+                //     old_size
+                // );
+                // debug!("updated replica map: {:?}", new_map);
+                // while let Some(entry) = new_map.first_entry() {
+                //     let (k, v) = entry.remove_entry();
+                //     streams.insert(k, v);
+                // }
                 info!("result: {}, acks: {}", result, ack_count);
                 {
                     NODE.lock()
