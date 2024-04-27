@@ -39,7 +39,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<BTreeMap<usize, (TcpStream, usize)>>> =
+    let streams: Arc<SendableRwLock<BTreeMap<usize, (StdTcpStream, usize)>>> =
         Arc::new(SendableRwLock::new(BTreeMap::new()));
     let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
         mpsc::sync_channel(1024);
@@ -87,12 +87,6 @@ async fn main() {
                 debug!("replica map: {:?}", streams);
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
-                    // stream
-                    //     .set_write_timeout(Some(Duration::from_millis(1)))
-                    //     .unwrap();
-                    // stream
-                    //     .set_read_timeout(Some(Duration::from_millis(1)))
-                    //     .unwrap();
                     let replica = span!(Level::INFO, "replica", id = i);
                     let _gurad = replica.enter();
                     let mut is_uselss = false;
@@ -102,7 +96,7 @@ async fn main() {
                         Resp::Binary("*".as_bytes().into()),
                     ]));
                     for data in &command_buffer[offset..] {
-                        if let Err(e) = stream.write_all(&data).await {
+                        if let Err(e) = stream.write_all(&data) {
                             error!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
@@ -117,9 +111,9 @@ async fn main() {
                             info!("not sending replconf to the replica as offset is 0");
                         } else {
                             info!("sending replconf to the replica");
-                            stream.write_all(&replconf_get_ack).await;
+                            stream.write_all(&replconf_get_ack).unwrap();
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            let res = stream.read(&mut request_buffer).await;
+                            let res = stream.read(&mut request_buffer);
                             match res {
                                 Ok(0) => {
                                     error!("Replica recieved 0 bytes");
@@ -188,6 +182,7 @@ async fn main() {
                             debug!("sending commands to replica");
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
+                            let stream = stream.into_std().unwrap();
                             // stream
                             //     .set_write_timeout(Some(Duration::from_millis(1)))
                             //     .unwrap();
