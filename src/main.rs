@@ -112,6 +112,7 @@ async fn main() {
                         } else {
                             info!("sending replconf to the replica");
                             stream.write_all(&replconf_get_ack).unwrap();
+                            stream.flush().unwrap();
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                             let res = stream.read(&mut request_buffer);
                             match res {
