@@ -242,6 +242,7 @@ fn handle_command(
                             .unwrap()
                             .parse::<u64>()
                             .unwrap();
+                        NODE.write().unwrap().replicas.store(0, Ordering::SeqCst);
                         NODE.read()
                             .unwrap()
                             .data_sender
@@ -251,7 +252,7 @@ fn handle_command(
                         let _lock = mutex.lock().unwrap();
                         let _ = cvar
                             .wait_timeout_while(_lock, Duration::from_millis(millis), |_| {
-                                NODE.read().unwrap().replicas.load(Ordering::Relaxed) <= n
+                                NODE.read().unwrap().replicas.load(Ordering::SeqCst) <= n
                             })
                             .unwrap();
                         drop(mutex);
@@ -259,7 +260,7 @@ fn handle_command(
                 }
             }
             SerDe::serialize(Resp::Integer(
-                NODE.read().unwrap().replicas.load(Ordering::Relaxed) as i64,
+                NODE.read().unwrap().replicas.load(Ordering::SeqCst) as i64,
             ))
         }
         "SET" => {
