@@ -248,7 +248,7 @@ async fn handle_connection(
                             .write()
                             .unwrap()
                             .replicas
-                            .fetch_add(1, Ordering::Relaxed);
+                            .fetch_add(1, Ordering::SeqCst);
                         info!("New replica {} is being added by {}", result, req);
                         let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
                         let mutex = mutex.lock().unwrap();

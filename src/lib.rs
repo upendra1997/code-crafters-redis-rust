@@ -242,11 +242,10 @@ fn handle_command(
                             .unwrap()
                             .parse::<u64>()
                             .unwrap();
-                        let _old_replicas = NODE.write().unwrap().replicas.load(Ordering::SeqCst);
-                        let (mutex, _cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        let _lock = mutex.lock().unwrap();
-                        NODE.write().unwrap().replicas.store(0, Ordering::SeqCst);
-                        drop(_lock);
+                        // let lock = NODE.write().unwrap();
+                        // let _old_replicas = lock.replicas.swap(0, Ordering::SeqCst);
+                        // debug!("Number of the replicas: {}", _old_replicas);
+                        // drop(lock);
                         NODE.read()
                             .unwrap()
                             .data_sender
