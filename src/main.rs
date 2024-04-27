@@ -115,14 +115,17 @@ async fn main() {
                             stream.try_write(&replconf_get_ack).unwrap();
                             stream.flush().await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            timeout(Duration::from_millis(50), stream.readable()).await;
-                            let res = stream.try_read(&mut request_buffer);
+                            let res = timeout(
+                                Duration::from_millis(50),
+                                stream.read(&mut request_buffer),
+                            )
+                            .await;
                             match res {
-                                Ok(0) => {
+                                Ok(Ok(0)) => {
                                     error!("Replica recieved 0 bytes");
                                     is_uselss = true;
                                 }
-                                Ok(n) => {
+                                Ok(Ok(n)) => {
                                     let response = &request_buffer[..n];
                                     result += 1;
                                     ack_count += 1;
@@ -134,8 +137,12 @@ async fn main() {
                                         String::from_utf8_lossy(response)
                                     );
                                 }
-                                Err(e) => {
+                                Ok(Err(e)) => {
                                     error!("Replica {} errored with {}", i, e);
+                                    is_uselss = true;
+                                }
+                                Err(e) => {
+                                    error!("Replica {} timed out with {}", i, e);
                                     is_uselss = true;
                                 }
                             }
