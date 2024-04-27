@@ -157,8 +157,8 @@ async fn main() {
                 }
                 let new_size = new_map.len();
                 info!(
-                    "have removend {} values new_size: {}, old_size: {}",
-                    new_size - old_size,
+                    "have removed {} values new_size: {}, old_size: {}",
+                    old_size - new_size,
                     new_size,
                     old_size
                 );
