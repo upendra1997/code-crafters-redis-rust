@@ -39,7 +39,7 @@ async fn main() {
         });
     }
 
-    let streams: Arc<SendableRwLock<BTreeMap<usize, (StdTcpStream, usize)>>> =
+    let streams: Arc<SendableRwLock<BTreeMap<usize, (TcpStream, usize)>>> =
         Arc::new(SendableRwLock::new(BTreeMap::new()));
     let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
         mpsc::sync_channel(1024);
@@ -96,7 +96,7 @@ async fn main() {
                         Resp::Binary("*".as_bytes().into()),
                     ]));
                     for data in &command_buffer[*offset..] {
-                        if let Err(e) = stream.write_all(&data) {
+                        if let Err(e) = stream.try_write(&data) {
                             error!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
@@ -111,10 +111,10 @@ async fn main() {
                             info!("not sending replconf to the replica as offset is 0");
                         } else {
                             info!("sending replconf to the replica");
-                            stream.write_all(&replconf_get_ack).unwrap();
-                            stream.flush().unwrap();
+                            stream.try_write(&replconf_get_ack).unwrap();
+                            stream.flush().await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            let res = stream.read(&mut request_buffer);
+                            let res = stream.try_read(&mut request_buffer);
                             match res {
                                 Ok(0) => {
                                     error!("Replica recieved 0 bytes");
@@ -184,14 +184,14 @@ async fn main() {
                             debug!("sending commands to replica");
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
-                            let stream = stream.into_std().unwrap();
-                            stream.set_nonblocking(false).unwrap();
-                            stream
-                                .set_write_timeout(Some(Duration::from_millis(5)))
-                                .unwrap();
-                            stream
-                                .set_read_timeout(Some(Duration::from_millis(5)))
-                                .unwrap();
+                            // let stream = stream.into_std().unwrap();
+                            // stream.set_nonblocking(false).unwrap();
+                            // stream
+                            //     .set_write_timeout(Some(Duration::from_millis(5)))
+                            //     .unwrap();
+                            // stream
+                            //     .set_read_timeout(Some(Duration::from_millis(5)))
+                            //     .unwrap();
                             streams.insert(max + 1, (stream, 0));
                         }
                     }
