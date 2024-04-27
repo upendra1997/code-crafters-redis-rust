@@ -81,6 +81,12 @@ async fn main() {
                 debug!("replica map: {:?}", streams);
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
+                    stream
+                        .set_write_timeout(Some(Duration::from_micros(500)))
+                        .unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_micros(500)))
+                        .unwrap();
                     debug!(
                         "stream read_timeout: {:?}, write_timeout: {:?}",
                         stream.read_timeout(),
