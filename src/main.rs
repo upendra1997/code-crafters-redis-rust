@@ -112,7 +112,7 @@ async fn main() {
                     }
 
                     if is_ack {
-                        if offset > 0 {
+                        if offset <= 0 {
                             info!("not sending replconf to the replica as offset is 0");
                             // let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
                             // let mutex = mutex.lock().unwrap();
