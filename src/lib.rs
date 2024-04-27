@@ -243,7 +243,7 @@ fn handle_command(
                             .parse::<u64>()
                             .unwrap();
                         // let old_replicas = NODE.write().unwrap().replicas.load(Ordering::SeqCst);
-                        // NODE.write().unwrap().replicas.store(0, Ordering::SeqCst);
+                        NODE.write().unwrap().replicas.store(0, Ordering::SeqCst);
                         NODE.read()
                             .unwrap()
                             .data_sender
