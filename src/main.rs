@@ -115,7 +115,7 @@ async fn main() {
                             stream.try_write(&replconf_get_ack).unwrap();
                             stream.flush().await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            timeout(Duration::from_millis(5), stream.readable()).await;
+                            timeout(Duration::from_millis(10), stream.readable()).await;
                             let res = stream.try_read(&mut request_buffer);
                             match res {
                                 Ok(0) => {
