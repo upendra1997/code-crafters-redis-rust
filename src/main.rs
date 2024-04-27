@@ -74,13 +74,18 @@ async fn main() {
                 let mut is_ack = false;
                 let mut ack_count = 0;
                 let mut result = 0;
-                if let TcpStreamMessage::Data(data) = data {
-                    if data.len() == 0 {
-                        continue;
+                let mut ti = 0;
+                match data {
+                    TcpStreamMessage::Data(data) => {
+                        if data.len() == 0 {
+                            continue;
+                        }
+                        command_buffer.push(data);
                     }
-                    command_buffer.push(data);
-                } else {
-                    is_ack = true;
+                    TcpStreamMessage::CountAcks(t) => {
+                        ti = t;
+                        is_ack = true;
+                    }
                 }
                 let mut streams = streamss.write().await;
                 // let mut new_map = BTreeMap::new();
@@ -116,7 +121,7 @@ async fn main() {
                             stream.flush().await;
                             let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
                             let res = timeout(
-                                Duration::from_millis(50),
+                                Duration::from_millis(ti),
                                 stream.read(&mut request_buffer),
                             )
                             .await;

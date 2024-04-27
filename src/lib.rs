@@ -93,7 +93,7 @@ impl SignalSender {
 const EMPTY_RDB: &[u8; 88] = include_bytes!("resources/empty.rdb");
 
 pub enum TcpStreamMessage {
-    CountAcks(()),
+    CountAcks(u64),
     Data(Vec<u8>),
 }
 
@@ -254,7 +254,7 @@ fn handle_command(
                                 .unwrap()
                                 .data_sender
                                 .as_ref()
-                                .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
+                                .map(|sender| sender.send(TcpStreamMessage::CountAcks(millis)));
                         }
                         {
                             let cvar = &*NEW_NODE_NOTIFIER.clone();
