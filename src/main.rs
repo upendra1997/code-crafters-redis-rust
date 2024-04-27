@@ -103,7 +103,7 @@ async fn main() {
                     ]));
                     for data in &command_buffer[offset..] {
                         if let Err(e) = stream.write_all(&data) {
-                            info!("removing replica from the master, because of {}", e);
+                            error!("removing replica from the master, because of {}", e);
                             is_uselss = true;
                             break;
                         }
