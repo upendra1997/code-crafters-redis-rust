@@ -112,14 +112,14 @@ async fn main() {
                     }
 
                     if is_ack {
-                        // if offset <= 0 {
-                        //     info!("not sending replconf to the replica as offset is 0");
-                        //     let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        //     let mutex = mutex.lock().unwrap();
-                        //     cvar.notify_all();
-                        //     drop(mutex);
-                        //     break;
-                        // }
+                        if offset <= 0 {
+                            info!("not sending replconf to the replica as offset is 0");
+                            let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                            let mutex = mutex.lock().unwrap();
+                            cvar.notify_one();
+                            drop(mutex);
+                            continue;
+                        }
                         info!("sending replconf to the replica");
                         stream.write_all(&replconf_get_ack).unwrap();
                         let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
