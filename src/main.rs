@@ -133,7 +133,7 @@ async fn main() {
                                 cvar.notify_all();
                                 drop(mutex);
                                 info!(
-                                    "Replica {}:{} replied with {}:{}",
+                                    "ACK recieved: Replica {}:{} replied with {}:{}",
                                     i,
                                     result,
                                     n,
