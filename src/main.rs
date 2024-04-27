@@ -175,7 +175,7 @@ async fn main() {
                     NODE.lock()
                         .unwrap()
                         .replicas
-                        .store(result, Ordering::SeqCst);
+                        .store(ack_count, Ordering::SeqCst);
                     let cvar = &*NEW_NODE_NOTIFIER.clone();
                     cvar.notify_all();
                 }
