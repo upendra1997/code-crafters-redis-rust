@@ -185,6 +185,7 @@ async fn main() {
                             let mut streams = streams.write().await;
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
                             let stream = stream.into_std().unwrap();
+                            stream.set_nonblocking(false).unwrap();
                             // stream
                             //     .set_write_timeout(Some(Duration::from_millis(1)))
                             //     .unwrap();
