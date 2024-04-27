@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 use tokio::time::Instant;
+use tracing::field::debug;
 use tracing::{debug, error, info};
 
 mod rdb;
@@ -232,6 +233,10 @@ fn handle_command(
             }
         }
         "WAIT" => {
+            let mut old_replica_count = 0;
+            {
+                old_replica_count = NODE.lock().unwrap().replicas.swap(0, Ordering::SeqCst);
+            }
             if let Resp::Binary(n) = arguments.pop_front().unwrap() {
                 let n = str::from_utf8(n.as_ref())
                     .unwrap()
@@ -264,6 +269,7 @@ fn handle_command(
                     }
                 }
             }
+            debug!("old replica count: {}", old_replica_count);
             SerDe::serialize(Resp::Integer(
                 NODE.lock().unwrap().replicas.load(Ordering::SeqCst) as i64,
             ))
