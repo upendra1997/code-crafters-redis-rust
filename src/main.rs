@@ -82,10 +82,10 @@ async fn main() {
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
                     stream
-                        .set_write_timeout(Some(Duration::from_micros(500)))
+                        .set_write_timeout(Some(Duration::from_millis(1)))
                         .unwrap();
                     stream
-                        .set_read_timeout(Some(Duration::from_micros(500)))
+                        .set_read_timeout(Some(Duration::from_millis(1)))
                         .unwrap();
                     debug!(
                         "stream read_timeout: {:?}, write_timeout: {:?}",
@@ -188,10 +188,10 @@ async fn main() {
                             let max = streams.keys().into_iter().max().map(|k| *k).unwrap_or(0);
                             let stream = stream.into_std().unwrap();
                             stream
-                                .set_write_timeout(Some(Duration::from_micros(500)))
+                                .set_write_timeout(Some(Duration::from_millis(1)))
                                 .unwrap();
                             stream
-                                .set_read_timeout(Some(Duration::from_micros(500)))
+                                .set_read_timeout(Some(Duration::from_millis(1)))
                                 .unwrap();
                             streams.insert(max + 1, (stream, 0));
                         }
