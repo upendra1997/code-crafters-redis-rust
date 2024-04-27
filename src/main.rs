@@ -2,6 +2,7 @@ use redis_starter_rust::resp::{Resp, SerDe};
 use redis_starter_rust::{handle_input, SignalSender, TcpStreamMessage, NEW_NODE_NOTIFIER, NODE};
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
+use std::net::TcpListener as StdTcpListener;
 use std::net::TcpStream as StdTcpStream;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender};
@@ -111,43 +112,37 @@ async fn main() {
                     }
 
                     if is_ack {
+                        info!("sending replconf to the replica");
                         stream.write_all(&replconf_get_ack).unwrap();
                         let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                        loop {
-                            let res = stream.read(&mut request_buffer);
-                            match res {
-                                Ok(0) => {
-                                    is_uselss = true;
-                                    break;
-                                }
-                                Ok(n) => {
-                                    let response = &request_buffer[..n];
-                                    let result = NODE
-                                        .write()
-                                        .unwrap()
-                                        .replicas
-                                        .fetch_add(1, Ordering::Relaxed);
-                                    let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                                    let mutex = mutex.lock().unwrap();
-                                    cvar.notify_all();
-                                    drop(mutex);
-                                    info!(
-                                        "Replica {}:{} replied with {}:{}",
-                                        i,
-                                        result,
-                                        n,
-                                        String::from_utf8_lossy(response)
-                                    );
-                                    break;
-                                }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                                    continue;
-                                }
-                                Err(e) => {
-                                    error!("Replica {} errored with {}", i, e);
-                                    is_uselss = true;
-                                    break;
-                                }
+                        let res = stream.read(&mut request_buffer);
+                        match res {
+                            Ok(0) => {
+                                is_uselss = true;
+                            }
+                            Ok(n) => {
+                                let response = &request_buffer[..n];
+                                let result = NODE
+                                    .write()
+                                    .unwrap()
+                                    .replicas
+                                    .fetch_add(1, Ordering::Relaxed);
+                                let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
+                                let mutex = mutex.lock().unwrap();
+                                cvar.notify_all();
+                                drop(mutex);
+                                info!(
+                                    "Replica {}:{} replied with {}:{}",
+                                    i,
+                                    result,
+                                    n,
+                                    String::from_utf8_lossy(response)
+                                );
+                            }
+                            Err(e) => {
+                                error!("Replica {} errored with {}", i, e);
+                                is_uselss = true;
+                                break;
                             }
                         }
                     }
