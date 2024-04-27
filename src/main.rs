@@ -27,11 +27,13 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
     debug!("Logs from your program will appear here!");
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", NODE.read().unwrap().port))
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", NODE.lock().unwrap().port))
         .await
         .unwrap();
 
-    if let Some(_) = NODE.read().unwrap().master {
+    let is_master = NODE.lock().unwrap().master.is_none();
+
+    if !is_master {
         tokio::spawn(async move {
             handle_replication().await;
         });
@@ -41,11 +43,12 @@ async fn main() {
         Arc::new(SendableRwLock::new(BTreeMap::new()));
     let (sender, reciver): (SyncSender<TcpStreamMessage>, Receiver<TcpStreamMessage>) =
         mpsc::sync_channel(1024);
-    let mut node = NODE.write().unwrap();
-    node.data_sender = Some(sender.clone());
-    drop(node);
+    {
+        let mut node = NODE.lock().unwrap();
+        node.data_sender = Some(sender.clone());
+        drop(node);
+    }
     let streamss = streams.clone();
-    let is_master = NODE.read().unwrap().master.is_none();
     if is_master {
         info!("Node is master");
     } else {
@@ -68,6 +71,8 @@ async fn main() {
                 //     }
                 //     TcpStreamMessage::Data(data) => {
                 let mut is_ack = false;
+                let mut ack_count = 0;
+                let mut result = 0;
                 if let TcpStreamMessage::Data(data) = data {
                     if data.len() == 0 {
                         continue;
@@ -113,11 +118,8 @@ async fn main() {
 
                     if is_ack {
                         if offset <= 0 {
+                            ack_count += 1;
                             info!("not sending replconf to the replica as offset is 0");
-                            let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                            let mutex = mutex.lock().unwrap();
-                            cvar.notify_one();
-                            drop(mutex);
                             continue;
                         }
                         info!("sending replconf to the replica");
@@ -131,15 +133,8 @@ async fn main() {
                             }
                             Ok(n) => {
                                 let response = &request_buffer[..n];
-                                let result = NODE
-                                    .write()
-                                    .unwrap()
-                                    .replicas
-                                    .fetch_add(1, Ordering::SeqCst);
-                                let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                                let mutex = mutex.lock().unwrap();
-                                cvar.notify_all();
-                                drop(mutex);
+                                result += 1;
+                                ack_count += 1;
                                 info!(
                                     "ACK recieved: Replica {}:{} replied with {}:{}",
                                     i,
@@ -174,6 +169,15 @@ async fn main() {
                 while let Some(entry) = new_map.first_entry() {
                     let (k, v) = entry.remove_entry();
                     streams.insert(k, v);
+                }
+                info!("result: {}, acks: {}", result, ack_count);
+                {
+                    NODE.lock()
+                        .unwrap()
+                        .replicas
+                        .store(result, Ordering::SeqCst);
+                    let cvar = &*NEW_NODE_NOTIFIER.clone();
+                    cvar.notify_all();
                 }
             }
         });
@@ -212,7 +216,7 @@ async fn handle_connection(
     mut stream: TcpStream,
     data_sender: SyncSender<TcpStreamMessage>,
 ) -> Option<TcpStream> {
-    let is_master = NODE.read().unwrap().master.is_none();
+    let is_master = NODE.lock().unwrap().master.is_none();
     debug!("accepted new connection");
     let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
     loop {
@@ -244,16 +248,10 @@ async fn handle_connection(
                     }
                     stream.flush().await.unwrap();
                     if is_master && signals.new_node {
-                        let result = NODE
-                            .write()
-                            .unwrap()
-                            .replicas
-                            .fetch_add(1, Ordering::SeqCst);
+                        let result = NODE.lock().unwrap().replicas.fetch_add(1, Ordering::SeqCst);
                         info!("New replica {} is being added by {}", result, req);
-                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        let mutex = mutex.lock().unwrap();
+                        let cvar = &*NEW_NODE_NOTIFIER.clone();
                         cvar.notify_all();
-                        drop(mutex);
                         return Some(stream);
                     }
                     request = &request[n..];
@@ -289,7 +287,11 @@ async fn send_command_to_master(
 }
 
 async fn handle_replication() {
-    let master = NODE.read().unwrap().master.clone().unwrap();
+    let mut master = None;
+    {
+        master = NODE.lock().unwrap().master.clone();
+    }
+    let master = master.unwrap();
     let mut stream = TcpStream::connect(format!("{}:{}", master.host, master.port))
         .await
         .unwrap();
@@ -297,7 +299,7 @@ async fn handle_replication() {
     let replconf_listen_port = SerDe::serialize(Resp::Array(vec![
         Resp::Binary("REPLCONF".as_bytes().into()),
         Resp::Binary("listening-port".as_bytes().into()),
-        Resp::Binary(format!("{}", NODE.read().unwrap().port).as_bytes().into()),
+        Resp::Binary(format!("{}", NODE.lock().unwrap().port).as_bytes().into()),
     ]));
     let replconf_cap = SerDe::serialize(Resp::Array(vec![
         Resp::Binary("REPLCONF".as_bytes().into()),
@@ -314,7 +316,9 @@ async fn handle_replication() {
     send_command_to_master(&mut stream, &replconf_listen_port, &mut request_buffer).await;
     send_command_to_master(&mut stream, &replconf_cap, &mut request_buffer).await;
     let n = send_command_to_master(&mut stream, &psync_init, &mut request_buffer).await;
-    NODE.write().unwrap().master.as_mut().map(|m| m.offset += 1);
+    {
+        NODE.lock().unwrap().master.as_mut().map(|m| m.offset += 1);
+    }
     debug!("listening to master for commands");
     let mut request = &request_buffer[..n];
     loop {
@@ -326,7 +330,7 @@ async fn handle_replication() {
             let (response, n) = handle_input(request, tx);
             let signals = rx.try_recv();
             if signals.count_toward_offset {
-                let mut node = NODE.write().unwrap();
+                let mut node = NODE.lock().unwrap();
                 let replica = node.master.as_mut();
                 replica.map(|m| m.offset += n as i64);
             }

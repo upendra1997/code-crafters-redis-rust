@@ -100,9 +100,8 @@ lazy_static! {
     pub static ref STORE: RwLock<HashMap<Vec<u8>, Vec<u8>>> = RwLock::new(HashMap::new());
     pub static ref EXPIRY: RwLock<BinaryHeap<(Reverse<Instant>, Vec<u8>)>> =
         RwLock::new(BinaryHeap::new());
-    pub static ref NEW_NODE_NOTIFIER: Arc<(Mutex<()>, Condvar)> =
-        Arc::new((Mutex::new(()), Condvar::new()));
-    pub static ref NODE: RwLock<State> = {
+    pub static ref NEW_NODE_NOTIFIER: Arc<Condvar> = Arc::new(Condvar::new());
+    pub static ref NODE: Mutex<State> = {
         let mut port = 6379;
         if std::env::args().len() > 1 && std::env::args().into_iter().nth(1).unwrap() == "--port" {
             port = std::env::args().nth(2).unwrap().parse().unwrap();
@@ -120,7 +119,7 @@ lazy_static! {
             None => None,
         };
 
-        RwLock::new(State {
+        Mutex::new(State {
             master: master,
             port: port,
             replicas: AtomicUsize::new(0),
@@ -138,8 +137,11 @@ fn handle_command(
     mut arguments: VecDeque<Resp>,
     signal: SignalSender,
 ) -> Vec<u8> {
-    let replica = &NODE.read().unwrap().master;
-    let is_master = replica.is_none();
+    let mut is_master = false;
+    {
+        let replica = &NODE.lock().unwrap().master;
+        is_master = replica.is_none();
+    }
     let command = command.as_ref();
     let command = str::from_utf8(command);
     if let Err(_e) = command {
@@ -161,7 +163,7 @@ fn handle_command(
                     [
                         "REPLCONF".as_bytes().into(),
                         "ACK".as_bytes().into(),
-                        format!("{}", replica.as_ref().unwrap().offset)
+                        format!("{}", NODE.lock().unwrap().master.clone().unwrap().offset)
                             .as_bytes()
                             .into(),
                     ]
@@ -199,7 +201,7 @@ fn handle_command(
             res
         }
         "INFO" => {
-            let commands = match NODE.read().unwrap().master {
+            let commands = match NODE.lock().unwrap().master {
                 None => "role:master\n",
                 Some(_) => "role:slave\n",
             };
@@ -242,28 +244,28 @@ fn handle_command(
                             .unwrap()
                             .parse::<u64>()
                             .unwrap();
-                        // let lock = NODE.write().unwrap();
-                        // let _old_replicas = lock.replicas.swap(0, Ordering::SeqCst);
-                        // debug!("Number of the replicas: {}", _old_replicas);
-                        // drop(lock);
-                        NODE.read()
-                            .unwrap()
-                            .data_sender
-                            .as_ref()
-                            .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
-                        let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                        let _lock = mutex.lock().unwrap();
-                        let _ = cvar
-                            .wait_timeout_while(_lock, Duration::from_millis(millis), |_| {
-                                NODE.read().unwrap().replicas.load(Ordering::SeqCst) <= n
-                            })
-                            .unwrap();
-                        drop(mutex);
+                        {
+                            NODE.lock()
+                                .unwrap()
+                                .data_sender
+                                .as_ref()
+                                .map(|sender| sender.send(TcpStreamMessage::CountAcks(())));
+                        }
+                        {
+                            let cvar = &*NEW_NODE_NOTIFIER.clone();
+                            let _ = cvar
+                                .wait_timeout_while(
+                                    NODE.lock().unwrap(),
+                                    Duration::from_millis(millis),
+                                    |node| node.replicas.load(Ordering::SeqCst) <= n,
+                                )
+                                .unwrap();
+                        }
                     }
                 }
             }
             SerDe::serialize(Resp::Integer(
-                NODE.read().unwrap().replicas.load(Ordering::SeqCst) as i64,
+                NODE.lock().unwrap().replicas.load(Ordering::SeqCst) as i64,
             ))
         }
         "SET" => {
