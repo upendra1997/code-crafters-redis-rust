@@ -120,32 +120,32 @@ async fn main() {
                         if offset <= 0 {
                             ack_count += 1;
                             info!("not sending replconf to the replica as offset is 0");
-                            continue;
-                        }
-                        info!("sending replconf to the replica");
-                        stream.write_all(&replconf_get_ack).unwrap();
-                        let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                        let res = stream.read(&mut request_buffer);
-                        match res {
-                            Ok(0) => {
-                                error!("Replica recieved 0 bytes");
-                                is_uselss = true;
-                            }
-                            Ok(n) => {
-                                let response = &request_buffer[..n];
-                                result += 1;
-                                ack_count += 1;
-                                info!(
-                                    "ACK recieved: Replica {}:{} replied with {}:{}",
-                                    i,
-                                    result,
-                                    n,
-                                    String::from_utf8_lossy(response)
-                                );
-                            }
-                            Err(e) => {
-                                error!("Replica {} errored with {}", i, e);
-                                is_uselss = true;
+                        } else {
+                            info!("sending replconf to the replica");
+                            stream.write_all(&replconf_get_ack).unwrap();
+                            let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                            let res = stream.read(&mut request_buffer);
+                            match res {
+                                Ok(0) => {
+                                    error!("Replica recieved 0 bytes");
+                                    is_uselss = true;
+                                }
+                                Ok(n) => {
+                                    let response = &request_buffer[..n];
+                                    result += 1;
+                                    ack_count += 1;
+                                    info!(
+                                        "ACK recieved: Replica {}:{} replied with {}:{}",
+                                        i,
+                                        result,
+                                        n,
+                                        String::from_utf8_lossy(response)
+                                    );
+                                }
+                                Err(e) => {
+                                    error!("Replica {} errored with {}", i, e);
+                                    is_uselss = true;
+                                }
                             }
                         }
                     }
