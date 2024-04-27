@@ -138,6 +138,7 @@ async fn main() {
                             }
                         }
                     }
+                    is_uselss = false;
                     if !is_uselss {
                         new_map.insert(i, (stream, offset));
                     } else {
