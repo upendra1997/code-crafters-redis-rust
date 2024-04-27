@@ -81,6 +81,11 @@ async fn main() {
                 debug!("replica map: {:?}", streams);
                 while let Some(entry) = streams.first_entry() {
                     let (i, (mut stream, mut offset)) = entry.remove_entry();
+                    debug!(
+                        "stream read_timeout: {:?}, write_timeout: {:?}",
+                        stream.read_timeout(),
+                        stream.write_timeout()
+                    );
                     let replica = span!(Level::INFO, "replica", id = i);
                     let _gurad = replica.enter();
                     let mut is_uselss = false;
@@ -117,9 +122,9 @@ async fn main() {
                                         .replicas
                                         .fetch_add(1, Ordering::Relaxed);
                                     let (mutex, cvar) = &*NEW_NODE_NOTIFIER.clone();
-                                    // let mutex = mutex.lock().unwrap();
+                                    let mutex = mutex.lock().unwrap();
                                     cvar.notify_all();
-                                    // drop(mutex);
+                                    drop(mutex);
                                     info!(
                                         "Replica {}:{} replied with {}:{}",
                                         i,
