@@ -118,7 +118,7 @@ async fn main() {
                         let res = stream.read(&mut request_buffer);
                         match res {
                             Ok(0) => {
-                                error!("Replica recievend 0 bytes");
+                                error!("Replica recieved 0 bytes");
                                 is_uselss = true;
                             }
                             Ok(n) => {
@@ -143,7 +143,6 @@ async fn main() {
                             Err(e) => {
                                 error!("Replica {} errored with {}", i, e);
                                 is_uselss = true;
-                                break;
                             }
                         }
                     }
