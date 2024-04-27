@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io;
-use tokio::sync::RwLock as SendableRwLock;
+use tokio::sync::{Mutex, RwLock as SendableRwLock};
 use tokio::time::timeout;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -62,7 +62,7 @@ async fn main() {
         // and reciver, on each TcpStream, and they will listen using the reciever,
         // need to ensure that, the broadcast does't reach the original sender.
         tokio::spawn(async move {
-            let mut command_buffer: Vec<Vec<u8>> = Vec::new();
+            let mut command_buffer: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::new()));
             for data in reciver {
                 // match data {
                 //     TcpStreamMessage::CountAcks(_) => {
@@ -74,102 +74,111 @@ async fn main() {
                 let mut is_ack = false;
                 let mut ack_count = 0;
                 let mut result = 0;
-                if let TcpStreamMessage::Data(data) = data {
-                    if data.len() == 0 {
-                        continue;
+                let mut ti = 0;
+                match data {
+                    TcpStreamMessage::Data(data) => {
+                        if data.len() == 0 {
+                            continue;
+                        }
+                        command_buffer.lock().await.push(data);
                     }
-                    command_buffer.push(data);
-                } else {
-                    is_ack = true;
+                    TcpStreamMessage::CountAcks(t) => {
+                        ti = t;
+                        is_ack = true;
+                    }
                 }
                 let mut streams = streamss.write().await;
-                // let mut new_map = BTreeMap::new();
+                let mut new_map = Arc::new(Mutex::new(BTreeMap::new()));
                 let old_size = streams.len();
                 debug!("replica map: {:?}", streams);
-                for (i, (ref mut stream, ref mut offset)) in streams.iter_mut() {
-                    // let (i, (mut stream, mut offset)) = entry.remove_entry();
-                    let replica = span!(Level::INFO, "replica", id = i);
-                    let _gurad = replica.enter();
-                    let mut is_uselss = false;
-                    let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
-                        Resp::Binary("REPLCONF".as_bytes().into()),
-                        Resp::Binary("GETACK".as_bytes().into()),
-                        Resp::Binary("*".as_bytes().into()),
-                    ]));
-                    for data in &command_buffer[*offset..] {
-                        if let Err(e) = stream.try_write(&data) {
-                            error!("removing replica from the master, because of {}", e);
-                            is_uselss = true;
-                            break;
+                let mut jhs = vec![];
+                // for (i, (ref mut stream, ref mut offset)) in streams.iter_mut() {
+                while let Some(entry) = streams.first_entry() {
+                    let (i, (mut stream, mut offset)) = entry.remove_entry();
+                    let command_buffer = command_buffer.clone();
+                    let new_map = new_map.clone();
+                    let jh = tokio::spawn(async move {
+                        let replica = span!(Level::INFO, "replica", id = i);
+                        let _gurad = replica.enter();
+                        let mut is_uselss = false;
+                        let replconf_get_ack = SerDe::serialize(Resp::Array(vec![
+                            Resp::Binary("REPLCONF".as_bytes().into()),
+                            Resp::Binary("GETACK".as_bytes().into()),
+                            Resp::Binary("*".as_bytes().into()),
+                        ]));
+                        let datas = &command_buffer.lock().await[offset..];
+                        for data in datas {
+                            if let Err(e) = stream.try_write(&data) {
+                                error!("removing replica from the master, because of {}", e);
+                                is_uselss = true;
+                                break;
+                            }
+                            info!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
+                            offset += 1;
                         }
-                        info!("sendig {} to replica {}", String::from_utf8_lossy(data), i);
-                        *offset += 1;
-                    }
 
-                    if is_ack {
-                        if *offset <= 0 {
-                            ack_count += 1;
-                            info!("not sending replconf to the replica as offset is 0");
-                        } else {
-                            info!("sending replconf to the replica");
-                            stream.try_write(&replconf_get_ack).unwrap();
-                            stream.flush().await;
-                            let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
-                            let res = timeout(
-                                Duration::from_millis(50),
-                                stream.read(&mut request_buffer),
-                            )
-                            .await;
-                            match res {
-                                Ok(Ok(0)) => {
-                                    error!("Replica recieved 0 bytes");
-                                    is_uselss = true;
-                                }
-                                Ok(Ok(n)) => {
-                                    let response = &request_buffer[..n];
-                                    result += 1;
-                                    ack_count += 1;
-                                    info!(
-                                        "ACK recieved: Replica {}:{} replied with {}:{}",
-                                        i,
-                                        result,
-                                        n,
-                                        String::from_utf8_lossy(response)
-                                    );
-                                }
-                                Ok(Err(e)) => {
-                                    error!("Replica {} errored with {}", i, e);
-                                    is_uselss = true;
-                                }
-                                Err(e) => {
-                                    error!("Replica {} timed out with {}", i, e);
-                                    is_uselss = true;
+                        if is_ack {
+                            if offset <= 0 {
+                                ack_count += 1;
+                                info!("not sending replconf to the replica as offset is 0");
+                            } else {
+                                info!("sending replconf to the replica");
+                                stream.try_write(&replconf_get_ack).unwrap();
+                                stream.flush().await;
+                                let mut request_buffer = vec![0u8; REQUEST_BUFFER_SIZE];
+                                let res = timeout(
+                                    Duration::from_millis(ti),
+                                    stream.read(&mut request_buffer),
+                                )
+                                .await;
+                                match res {
+                                    Ok(Ok(0)) => {
+                                        error!("Replica recieved 0 bytes");
+                                        is_uselss = true;
+                                    }
+                                    Ok(Ok(n)) => {
+                                        let response = &request_buffer[..n];
+                                        result += 1;
+                                        ack_count += 1;
+                                        info!(
+                                            "ACK recieved: Replica {}:{} replied with {}:{}",
+                                            i,
+                                            result,
+                                            n,
+                                            String::from_utf8_lossy(response)
+                                        );
+                                    }
+                                    Ok(Err(e)) => {
+                                        error!("Replica {} errored with {}", i, e);
+                                        is_uselss = true;
+                                    }
+                                    Err(e) => {
+                                        error!("Replica {} timed out with {}", i, e);
+                                        is_uselss = true;
+                                    }
                                 }
                             }
                         }
-                    }
-                    // is_uselss = false;
-                    // if !is_uselss {
-                    //     new_map.insert(i, (stream, offset));
-                    // } else {
-                    //     info!(
-                    //         "removing replica id: {}, stream: {:?}, offset: {}",
-                    //         i, stream, offset
-                    //     );
-                    // }
+                        is_uselss = false;
+                        if !is_uselss {
+                            new_map.lock().await.insert(i, (stream, offset));
+                        } else {
+                            info!(
+                                "removing replica id: {}, stream: {:?}, offset: {}",
+                                i, stream, offset
+                            );
+                        }
+                    });
+                    jhs.push(jh);
                 }
-                // let new_size = new_map.len();
-                // info!(
-                //     "have removed {} values new_size: {}, old_size: {}",
-                //     old_size - new_size,
-                //     new_size,
-                //     old_size
-                // );
-                // debug!("updated replica map: {:?}", new_map);
-                // while let Some(entry) = new_map.first_entry() {
-                //     let (k, v) = entry.remove_entry();
-                //     streams.insert(k, v);
-                // }
+                for jh in jhs {
+                    jh.await;
+                }
+                debug!("updated replica map: {:?}", new_map);
+                while let Some(entry) = new_map.lock().await.first_entry() {
+                    let (k, v) = entry.remove_entry();
+                    streams.insert(k, v);
+                }
                 info!("result: {}, acks: {}", result, ack_count);
                 {
                     NODE.lock()
