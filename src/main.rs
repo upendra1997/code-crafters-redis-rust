@@ -187,10 +187,10 @@ async fn main() {
                             let stream = stream.into_std().unwrap();
                             stream.set_nonblocking(false).unwrap();
                             stream
-                                .set_write_timeout(Some(Duration::from_millis(1)))
+                                .set_write_timeout(Some(Duration::from_millis(5)))
                                 .unwrap();
                             stream
-                                .set_read_timeout(Some(Duration::from_millis(1)))
+                                .set_read_timeout(Some(Duration::from_millis(5)))
                                 .unwrap();
                             streams.insert(max + 1, (stream, 0));
                         }
